@@ -519,6 +519,12 @@ pub fn create_anthropic_sse_stream_from_gemini<E: std::error::Error + Send + 'st
         // segment the accumulated text into multiple content blocks at
         // tool-call boundaries, and flush in original order.
         // ------------------------------------------------------------------
+        if let Some(block) = provider_id.as_deref().and_then(|provider| super::gemini_shadow::history_block(provider, &tool_call_snapshots)) {
+            let index = next_content_index;
+            next_content_index += 1;
+            yield Ok(encode_sse("content_block_start", &json!({"type":"content_block_start", "index":index, "content_block":block})));
+            yield Ok(encode_sse("content_block_stop", &json!({"type":"content_block_stop", "index":index})));
+        }
         let tool_calls = tool_call_snapshots;
         for tool_call in &tool_calls {
             let index = next_content_index;

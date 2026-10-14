@@ -4726,9 +4726,19 @@ mod stack_tests {
                 serde_json::from_str::<Value>(call["arguments"].as_str().unwrap()).unwrap(),
                 json!({"path": "main.rs"})
             );
-            let next = transform_codex_anthropic::responses_request_to_anthropic(json!({
-                "model": "gemini-4-argon", "input": [call, {"type": "function_call_output", "call_id": call["call_id"], "output": "file contents"}]
-            }), 8192).unwrap();
+            let mut replay_input = response["output"].as_array().unwrap().clone();
+            replay_input.push(json!({"type": "function_call_output", "call_id": call["call_id"], "output": "file contents"}));
+            // Reconstruct from client history after all server state is lost.
+            state
+                .gemini_shadow
+                .clear_session(&context.provider.id, &context.session_id);
+            let next = transform_codex_anthropic::responses_request_to_anthropic(
+                json!({
+                    "model": "gemini-4-argon", "input": replay_input
+                }),
+                8192,
+            )
+            .unwrap();
             // A new HTTP request extracts its identity independently; reusing
             // the first context hides missing modern Codex session headers.
             let next_session =

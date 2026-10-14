@@ -274,6 +274,29 @@ pub fn responses_request_to_anthropic(
         })],
         _ => Vec::new(),
     };
+    // Gemini history envelopes must never be sent as Anthropic ciphertext.
+    if !body
+        .get("model")
+        .and_then(Value::as_str)
+        .is_some_and(|model| model.starts_with("gemini-"))
+    {
+        for message in &mut messages {
+            if let Some(blocks) = message.get_mut("content").and_then(Value::as_array_mut) {
+                blocks.retain(|block| {
+                    !block
+                        .get("data")
+                        .and_then(Value::as_str)
+                        .is_some_and(|data| data.starts_with(super::gemini_shadow::HISTORY_PREFIX))
+                });
+            }
+        }
+        messages.retain(|message| {
+            message
+                .get("content")
+                .and_then(Value::as_array)
+                .is_none_or(|blocks| !blocks.is_empty())
+        });
+    }
     // Anthropic /v1/messages requires messages to be non-empty and the first to be user.
     // Normalize the history (compacted/resumed sessions may start with
     // assistant/function_call, or input may be entirely reasoning and thus empty after being dropped).

@@ -65,6 +65,29 @@ pub fn anthropic_to_gemini_with_shadow(
         .and_then(|((store, provider_id), session_id)| store.get_session(provider_id, session_id))
         .map(|snapshot| snapshot.turns)
         .unwrap_or_default();
+    // Restore per-call signatures independently of the bounded in-memory turns.
+    // Never append these to positional shadow history: they carry no message.
+    let mut replay_signatures = std::collections::HashMap::new();
+    if let Some(provider) = provider_id {
+        for message in body
+            .get("messages")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            for block in message
+                .get("content")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                if let Some(signatures) = super::gemini_shadow::history_signatures(block, provider)
+                {
+                    replay_signatures.extend(signatures);
+                }
+            }
+        }
+    }
     let supports_multimodal_function_response = body
         .get("model")
         .and_then(Value::as_str)
@@ -85,6 +108,7 @@ pub fn anthropic_to_gemini_with_shadow(
             messages,
             &shadow_turns,
             supports_multimodal_function_response,
+            &replay_signatures,
         )?;
         if body
             .get("model")
@@ -228,6 +252,11 @@ pub fn gemini_to_anthropic_with_shadow_and_hints(
     }
 
     let mut content = Vec::new();
+    if let Some(block) = provider_id.and_then(|provider| {
+        super::gemini_shadow::history_block(provider, &extract_tool_call_meta(&rectified_parts))
+    }) {
+        content.push(block);
+    }
     let mut has_tool_use = false;
 
     for part in &rectified_parts {
@@ -553,6 +582,7 @@ fn convert_messages_to_contents(
     messages: &[Value],
     shadow_turns: &[GeminiAssistantTurn],
     supports_multimodal_function_response: bool,
+    replay_signatures: &std::collections::HashMap<String, String>,
 ) -> Result<Vec<Value>, ProxyError> {
     let mut contents = Vec::new();
     let mut used_shadow_indices = HashSet::new();
@@ -571,6 +601,7 @@ fn convert_messages_to_contents(
     // attach thought signatures when replaying tool_use→functionCall.
     let mut tool_name_by_id = build_tool_name_map_from_shadow_turns(shadow_turns);
     let mut thought_signature_by_id = build_thought_signature_map_from_shadow_turns(shadow_turns);
+    thought_signature_by_id.extend(replay_signatures.clone());
 
     // Pre-scan all assistant messages in the request body to seed
     // tool_name_by_id with every tool_use id mentioned in the conversation
@@ -623,7 +654,14 @@ fn convert_messages_to_contents(
             )
             .filter(|index| !used_shadow_indices.contains(index));
             assistant_seen_index += 1;
-            let shadow_index = tool_use_match_index.or(positional_shadow_index);
+            let has_tool_ids = !extract_assistant_tool_use_keys(message.get("content"))
+                .0
+                .is_empty();
+            let shadow_index = tool_use_match_index.or(if has_tool_ids {
+                None
+            } else {
+                positional_shadow_index
+            });
 
             if let Some(index) = shadow_index {
                 used_shadow_indices.insert(index);
@@ -712,6 +750,7 @@ fn find_matching_shadow_turn_for_assistant_message(
         }) {
             return Some(index);
         }
+        return None;
     }
 
     shadow_turns.iter().enumerate().find_map(|(index, turn)| {
@@ -776,6 +815,64 @@ fn split_function_response_parts(parts: &[Value]) -> Option<(Vec<Value>, Vec<Val
             .cloned()
             .partition(|part| is_function_response(part)),
     )
+}
+
+#[test]
+fn long_codex_history_restores_all_signatures_after_eviction_and_restart() {
+    use super::transform_codex_anthropic::{
+        anthropic_response_to_responses, responses_request_to_anthropic,
+    };
+    let store = GeminiShadowStore::with_limits(1, 64);
+    let mut history = vec![json!({"role":"user", "content":"Run tools"})];
+    for n in 0..96 {
+        let raw = json!({"responseId":format!("r{n}"), "candidates":[{"content":{"parts":[{"functionCall":{"id":format!("call_{n}"),"name":"exec_command","args":{"cmd":format!("echo {n}")}},"thoughtSignature":format!("sig_{n}")}]},"finishReason":"STOP"}]});
+        let message =
+            gemini_to_anthropic_with_shadow(raw, Some(&store), Some("prov"), Some("session"))
+                .unwrap();
+        let response = anthropic_response_to_responses(message).unwrap();
+        history.extend(response["output"].as_array().unwrap().clone());
+        history.push(
+            json!({"type":"function_call_output","call_id":format!("call_{n}"),"output":"ok"}),
+        );
+    }
+    assert_eq!(
+        store.get_session("prov", "session").unwrap().turns.len(),
+        64
+    );
+    // A disconnected/retried response can leave turns the client never saw.
+    // They must not replace older calls merely because the tool name matches.
+    for n in 0..10 {
+        store.record_assistant_turn(
+            "prov", "session",
+            json!({"parts":[{"functionCall":{"id":format!("orphan_{n}"),"name":"exec_command","args":{"cmd":"wrong"}},"thoughtSignature":"wrong"}]}),
+            vec![GeminiToolCallMeta::new(Some(format!("orphan_{n}")), "exec_command", json!({"cmd":"wrong"}), Some("wrong"))],
+        );
+    }
+    for restarted in [false, true] {
+        if restarted {
+            store.clear_session("prov", "session");
+        }
+        let request = responses_request_to_anthropic(
+            json!({"model":"gemini-4-argon", "input":history}),
+            8192,
+        )
+        .unwrap();
+        let result =
+            anthropic_to_gemini_with_shadow(request, Some(&store), Some("prov"), Some("session"))
+                .unwrap();
+        let parts: Vec<_> = result["contents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|c| c["parts"].as_array().unwrap())
+            .filter(|p| p.get("functionCall").is_some())
+            .collect();
+        assert_eq!(parts.len(), 96);
+        for (n, part) in parts.iter().enumerate() {
+            assert_eq!(part["functionCall"]["args"]["cmd"], format!("echo {n}"));
+            assert_eq!(part["thoughtSignature"], format!("sig_{n}"));
+        }
+    }
 }
 
 #[test]

@@ -8,6 +8,40 @@ use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+pub(crate) const HISTORY_PREFIX: &str = "ccswitch-gemini-signatures-v1:";
+
+/// Travel through Responses reasoning.encrypted_content, which Codex preserves
+/// in history. This is an opaque transport envelope, not encryption by us.
+pub(crate) fn history_block(provider: &str, calls: &[GeminiToolCallMeta]) -> Option<Value> {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    let signatures: serde_json::Map<String, Value> = calls
+        .iter()
+        .filter_map(|call| {
+            Some((
+                call.id.as_ref()?.clone(),
+                Value::String(call.thought_signature.as_ref()?.clone()),
+            ))
+        })
+        .collect();
+    if signatures.is_empty() {
+        return None;
+    }
+    let data = serde_json::json!({"provider": provider, "signatures": signatures});
+    Some(
+        serde_json::json!({"type": "redacted_thinking", "data": format!("{HISTORY_PREFIX}{}", URL_SAFE_NO_PAD.encode(data.to_string()))}),
+    )
+}
+
+pub(crate) fn history_signatures(block: &Value, provider: &str) -> Option<HashMap<String, String>> {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    let encoded = block.get("data")?.as_str()?.strip_prefix(HISTORY_PREFIX)?;
+    let value: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(encoded).ok()?).ok()?;
+    if value.get("provider")?.as_str()? != provider {
+        return None;
+    }
+    serde_json::from_value(value.get("signatures")?.clone()).ok()
+}
+
 /// Composite key for a Gemini shadow session.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GeminiShadowKey {
@@ -290,6 +324,26 @@ impl GeminiShadowStore {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn history_signatures_are_provider_scoped_and_reject_malformed_data() {
+        let calls = vec![super::GeminiToolCallMeta::new(
+            Some("call1"),
+            "exec",
+            serde_json::json!({}),
+            Some("sig1"),
+        )];
+        let block = super::history_block("provider-a", &calls).unwrap();
+        assert_eq!(
+            super::history_signatures(&block, "provider-a").unwrap()["call1"],
+            "sig1"
+        );
+        assert!(super::history_signatures(&block, "provider-b").is_none());
+        assert!(super::history_signatures(
+            &serde_json::json!({"data":"ccswitch-gemini-signatures-v1:invalid!"}),
+            "provider-a"
+        )
+        .is_none());
+    }
     use super::*;
     use serde_json::json;
 
