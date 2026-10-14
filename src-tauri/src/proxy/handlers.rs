@@ -4643,10 +4643,15 @@ mod stack_tests {
             });
             let request = json!({"model": "gemini-4-argon", "input": [{"role": "user", "content": "read a file"}],
                 "tools": [{"type": "function", "name": "read_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}]});
+            let mut client_headers = axum::http::HeaderMap::new();
+            client_headers.insert(
+                "thread-id",
+                "01a1394e-0bba-7770-ab70-0751f4fa01f7".parse().unwrap(),
+            );
             let context = RequestContext::new(
                 &state,
                 &request,
-                &axum::http::HeaderMap::new(),
+                &client_headers,
                 AppType::Codex,
                 "Codex",
                 "codex",
@@ -4714,11 +4719,15 @@ mod stack_tests {
             let next = transform_codex_anthropic::responses_request_to_anthropic(json!({
                 "model": "gemini-4-argon", "input": [call, {"type": "function_call_output", "call_id": call["call_id"], "output": "file contents"}]
             }), 8192).unwrap();
+            // A new HTTP request extracts its identity independently; reusing
+            // the first context hides missing modern Codex session headers.
+            let next_session =
+                crate::proxy::session::extract_session_id(&client_headers, &next, "codex");
             let replay = transform_gemini::anthropic_to_gemini_with_shadow(
                 next,
                 Some(state.gemini_shadow.as_ref()),
                 Some(&context.provider.id),
-                Some(&context.session_id),
+                Some(&next_session.session_id),
             )
             .unwrap();
             let parts: Vec<&Value> = replay["contents"]

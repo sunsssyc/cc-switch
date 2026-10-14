@@ -16,12 +16,63 @@ pub enum GeminiFunctionParameters {
 }
 
 pub fn build_gemini_function_parameters(input_schema: Value) -> GeminiFunctionParameters {
-    let schema = ensure_object_schema(normalize_json_schema(input_schema));
+    let mut schema = ensure_object_schema(normalize_json_schema(input_schema));
+    simplify_recursive_json_values(&mut schema);
 
     if requires_parameters_json_schema(&schema) {
         GeminiFunctionParameters::JsonSchema(schema)
     } else {
         GeminiFunctionParameters::Schema(to_gemini_schema(schema))
+    }
+}
+
+/// Codex desktop tools describe arbitrary JSON with a six-way recursive union.
+/// Vertex rejects the recursion through `additionalProperties`, even though an
+/// empty object terminates it. For this exact union, unconstrained array items
+/// and map values accept precisely the same JSON values, without a ref loop.
+/// Do not weaken other recursive schemas (e.g. a constrained tree).
+fn simplify_recursive_json_values(schema: &mut Value) {
+    for keyword in ["$defs", "definitions"] {
+        let Some(definitions) = schema.get_mut(keyword).and_then(Value::as_object_mut) else {
+            continue;
+        };
+        for (name, definition) in definitions {
+            let reference = format!("#/{keyword}/{}", name.replace('~', "~0").replace('/', "~1"));
+            let expected = [
+                json!({"type": "null"}),
+                json!({"type": "boolean"}),
+                json!({"type": "number"}),
+                json!({"type": "string"}),
+                json!({"type": "array", "items": {"$ref": reference}}),
+                json!({"type": "object", "additionalProperties": {"$ref": reference}}),
+            ];
+            let Some(object) = definition.as_object_mut() else {
+                continue;
+            };
+            // Only annotations may accompany the union; other keywords can
+            // constrain its values and invalidate this equivalence.
+            if object
+                .keys()
+                .any(|key| !matches!(key.as_str(), "anyOf" | "title" | "description"))
+            {
+                continue;
+            }
+            let Some(branches) = object.get_mut("anyOf").and_then(Value::as_array_mut) else {
+                continue;
+            };
+            if branches.len() != expected.len()
+                || !expected.iter().all(|branch| branches.contains(branch))
+            {
+                continue;
+            }
+            for branch in branches {
+                match branch["type"].as_str() {
+                    Some("array") => branch["items"] = json!({}),
+                    Some("object") => branch["additionalProperties"] = json!(true),
+                    _ => {}
+                }
+            }
+        }
     }
 }
 
@@ -238,6 +289,58 @@ pub fn build_gemini_function_declaration(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn recursive_json_tool() -> Value {
+        json!({
+            "type": "object", "required": ["payload"],
+            "properties": {"payload": {"$ref": "#/$defs/__schema0"}},
+            "$defs": {"__schema0": {"anyOf": [
+                {"type": "string"}, {"type": "number"},
+                {"type": "boolean"}, {"type": "null"},
+                {"type": "array", "items": {"$ref": "#/$defs/__schema0"}},
+                {"type": "object", "additionalProperties": {"$ref": "#/$defs/__schema0"}}
+            ]}}
+        })
+    }
+
+    #[test]
+    fn codex_arbitrary_json_tool_has_no_recursive_map_or_array_refs() {
+        let mut input = recursive_json_tool();
+        let literal = json!({"$ref": "#/$defs/__schema0"});
+        input["properties"]["payload"]["default"] = literal.clone();
+        let result = build_gemini_function_declaration("automation_update", None, input);
+        let schema = &result["parametersJsonSchema"];
+        assert_eq!(schema["$defs"]["__schema0"]["anyOf"][4]["items"], json!({}));
+        assert_eq!(
+            schema["$defs"]["__schema0"]["anyOf"][5]["additionalProperties"],
+            true
+        );
+        assert_eq!(schema["properties"]["payload"]["$ref"], "#/$defs/__schema0");
+        assert_eq!(schema["properties"]["payload"]["default"], literal);
+        assert_eq!(schema["required"], json!(["payload"]));
+    }
+
+    #[test]
+    fn constrained_recursive_values_are_not_weakened() {
+        for constraint in ["minItems", "maxItems"] {
+            let mut input = recursive_json_tool();
+            input["$defs"]["__schema0"]["anyOf"][4][constraint] = json!(1);
+            assert_eq!(
+                build_gemini_function_declaration("tree", None, input.clone())
+                    ["parametersJsonSchema"],
+                input
+            );
+        }
+        let mut input = recursive_json_tool();
+        input["$defs"]["__schema0"]["anyOf"]
+            .as_array_mut()
+            .unwrap()
+            .remove(3);
+        assert_eq!(
+            build_gemini_function_declaration("tree", None, input.clone())["parametersJsonSchema"],
+            input
+        );
+    }
 
     #[test]
     fn uses_schema_for_simple_openapi_subset() {
