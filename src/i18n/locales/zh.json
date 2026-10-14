@@ -5185,7 +5185,7 @@
     "deleteSessionHint": "请在 DeepSeek Harness 中删除此会话，以保持原生历史记录一致。"
   },
   "vertexAi": {
-    "serviceAccountHint": "已使用服务账号认证，无需安装 gcloud。密钥保存在 CC Switch 本地供应商配置中，访问令牌由程序自动获取和刷新。请为该账号授予目标项目的模型调用权限。",
+    "serviceAccountHint": "已使用服务账号认证，无需安装 gcloud。密钥保存在 CC Switch 本地供应商配置中，访问令牌由程序自动获取和刷新。请为该账号授予目标项目的模型调用权限。 Vertex AI 作为默认供应商时，Codex 无需登录 ChatGPT 或填写 OpenAI API Key；OpenAI Official 作为聚合默认供应商时，可以保留 ChatGPT 登录，同时使用官方和 Vertex 模型。切换到 Vertex AI 后，请彻底重启 Codex 并新开会话，旧会话可能仍绑定原供应商。 请先在目标项目启用 Vertex AI API（aiplatform.googleapis.com）。",
     "invalidServiceAccount": "请选择有效的 Google 服务账号 JSON 密钥文件，包含 RSA 私钥、账号邮箱和 Google 令牌地址（文件不超过 1 MB）。",
     "importing": "正在导入…",
     "removeServiceAccount": "移除密钥",
@@ -5193,7 +5193,7 @@
     "importServiceAccount": "导入 JSON 密钥",
     "serviceAccount": "服务账号 JSON 密钥",
     "geminiLocationRequired": "Gemini 3.8 及更高版本请选择 global、us 或 eu 区域。",
-    "authHint": "通过路由或聚合使用 Claude 和 Gemini，按所选模型自动适配。区域请选择 global、us 或 eu。可直接导入服务账号 JSON 密钥，无需安装 gcloud；也可使用 gcloud ADC 或填写 Google OAuth 访问令牌。",
+    "authHint": "通过路由或聚合使用 Claude 和 Gemini，按所选模型自动适配。区域请选择 global、us 或 eu。可直接导入服务账号 JSON 密钥，无需安装 gcloud；也可使用 gcloud ADC 或填写 Google OAuth 访问令牌。 Vertex AI 作为默认供应商时，Codex 无需登录 ChatGPT 或填写 OpenAI API Key；OpenAI Official 作为聚合默认供应商时，可以保留 ChatGPT 登录，同时使用官方和 Vertex 模型。切换到 Vertex AI 后，请彻底重启 Codex 并新开会话，旧会话可能仍绑定原供应商。 请先在目标项目启用 Vertex AI API（aiplatform.googleapis.com）。",
     "geminiAuthHint": "通过本地路由或聚合使用 Gemini 4 Argon / Gemini 3.8 Flash。区域请选择 global、us 或 eu。运行 gcloud auth application-default login 配置 ADC，或填写 Google OAuth 访问令牌（过期后需更新）。",
     "projectId": "Google Cloud 项目 ID",
     "location": "Vertex AI 区域",

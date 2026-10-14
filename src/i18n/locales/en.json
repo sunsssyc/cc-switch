@@ -5185,7 +5185,7 @@
     "deleteSessionHint": "Delete this session in DeepSeek Harness to keep its history consistent."
   },
   "vertexAi": {
-    "serviceAccountHint": "Service account authentication does not require gcloud. The key is stored in the local CC Switch provider configuration; access tokens are obtained and refreshed automatically. Grant the account model invocation permissions in the target project.",
+    "serviceAccountHint": "Service account authentication does not require gcloud. The key is stored in the local CC Switch provider configuration; access tokens are obtained and refreshed automatically. Grant the account model invocation permissions in the target project. When Vertex AI is the default provider, Codex needs no ChatGPT login or OpenAI API key. When OpenAI Official is the Aggregation default, keep your ChatGPT login to use both official and Vertex models. After switching to Vertex AI, fully restart Codex and start a new chat; existing chats may remain bound to the previous provider. First enable the Vertex AI API (aiplatform.googleapis.com) in the target project.",
     "invalidServiceAccount": "Select a valid Google service account JSON key containing an RSA private key, account email and Google token endpoint (up to 1 MB).",
     "importing": "Importing…",
     "removeServiceAccount": "Remove key",
@@ -5193,7 +5193,7 @@
     "importServiceAccount": "Import JSON key",
     "serviceAccount": "Service account JSON key",
     "geminiLocationRequired": "Choose global, us or eu for Gemini 3.8 and later.",
-    "authHint": "Use Claude and Gemini through Routing or Aggregation; the selected model determines the protocol. Select global, us or eu. Import a service account JSON key without installing gcloud, or use gcloud ADC or a Google OAuth access token.",
+    "authHint": "Use Claude and Gemini through Routing or Aggregation; the selected model determines the protocol. Select global, us or eu. Import a service account JSON key without installing gcloud, or use gcloud ADC or a Google OAuth access token. When Vertex AI is the default provider, Codex needs no ChatGPT login or OpenAI API key. When OpenAI Official is the Aggregation default, keep your ChatGPT login to use both official and Vertex models. After switching to Vertex AI, fully restart Codex and start a new chat; existing chats may remain bound to the previous provider. First enable the Vertex AI API (aiplatform.googleapis.com) in the target project.",
     "geminiAuthHint": "Use Gemini 4 Argon / Gemini 3.8 Flash through local Routing or Aggregation. Select global, us or eu. Run gcloud auth application-default login to configure ADC, or supply a Google OAuth access token and replace it when it expires.",
     "projectId": "Google Cloud project ID",
     "location": "Vertex AI location",

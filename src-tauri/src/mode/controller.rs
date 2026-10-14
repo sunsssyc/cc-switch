@@ -3507,6 +3507,77 @@ mod mode_tests {
             .live_has_proxy_placeholder(&AppType::Codex));
     }
 
+    #[tokio::test]
+    #[serial]
+    async fn codex_vertex_route_never_requires_an_openai_login() {
+        for native_auth in [
+            None,
+            Some(chatgpt_login("native-account")),
+            Some(json!({"auth_mode": "apikey", "OPENAI_API_KEY": "sk-local-test"})),
+        ] {
+            let _home = Home::new();
+            set_preservation(true);
+            seed_codex("model = \"gpt-5.4\"\n", native_auth.as_ref());
+            let official = codex_official();
+            let mut vertex = Provider::with_id(
+                "vertex".into(),
+                "Google Vertex AI".into(),
+                json!({
+                    "auth": {},
+                    "config": "model_provider = \"custom\"\nmodel = \"gemini-4-argon\"\n[model_providers.custom]\nname = \"Google Vertex AI\"\nbase_url = \"https://aiplatform.googleapis.com\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n",
+                    "modelCatalog": {"models": [{"model": "gemini-4-argon", "displayName": "Gemini 4 Argon", "contextWindow": 1048576}, {"model": "gemini-3.8-flash", "displayName": "Gemini 3.8 Flash", "contextWindow": 1048576}]}
+                }),
+                None,
+            );
+            vertex.meta = Some(crate::provider::ProviderMeta {
+                vertex_ai: Some(crate::provider::VertexAiConfig {
+                    project_id: "project".into(),
+                    location: "global".into(),
+                    publisher: Some("auto".into()),
+                    service_account: None,
+                }),
+                ..Default::default()
+            });
+            let state = state_with(AppType::Codex, &[official.clone(), vertex], &official.id).await;
+            enter_with_route(&state, &AppType::Codex, false, Some("vertex"))
+                .await
+                .expect("enter Vertex route");
+            let doc = codex_doc();
+            assert_eq!(doc["model_provider"].as_str(), Some("custom"));
+            assert_eq!(doc["model"].as_str(), Some("gemini-4-argon"));
+            let table = &doc["model_providers"]["custom"];
+            assert!(table["base_url"]
+                .as_str()
+                .unwrap()
+                .starts_with("http://127.0.0.1:"));
+            assert_eq!(table["requires_openai_auth"].as_bool(), Some(false));
+            assert_eq!(table["supports_websockets"].as_bool(), Some(false));
+            assert_eq!(
+                table["experimental_bearer_token"].as_str(),
+                Some(PROXY_TOKEN_PLACEHOLDER)
+            );
+            assert!(doc.get("openai_base_url").is_none());
+            let auth_after = fs::read(codex_auth_path())
+                .ok()
+                .map(|bytes| serde_json::from_slice::<Value>(&bytes).unwrap());
+            assert_eq!(
+                auth_after, native_auth,
+                "routing preserves the user's original login without requiring it"
+            );
+            let catalog: Value =
+                crate::config::read_json_file(&crate::codex_config::get_codex_model_catalog_path())
+                    .unwrap();
+            let slugs: Vec<&str> = catalog["models"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|model| model["slug"].as_str().unwrap())
+                .collect();
+            assert_eq!(slugs, ["gemini-4-argon", "gemini-3.8-flash"]);
+            exit(&state, &AppType::Codex).await.expect("exit route");
+        }
+    }
+
     /// 官方做路由时会话和官方直连落在同一个桶：进出代理不换 Codex 选中的 provider id。
     #[tokio::test]
     #[serial]
@@ -8542,6 +8613,161 @@ model_provider = "c"
         assert!(codex_doc().get("model_catalog_json").is_none());
         exit(&state, &AppType::Codex).await.expect("exit");
         assert_eq!(fs::read(codex_auth_path()).unwrap(), auth_bytes);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn codex_official_vertex_stack_keeps_login_and_uses_an_http_mirror() {
+        for unified in [false, true] {
+            let _home = Home::new();
+            crate::settings::update_settings(crate::settings::AppSettings {
+                unify_codex_session_history: unified,
+                ..Default::default()
+            })
+            .unwrap();
+            let native_auth = chatgpt("ws", "alice");
+            seed_codex("model = \"gpt-6-sol\"\n", Some(&native_auth));
+            let auth_before = fs::read(codex_auth_path()).unwrap();
+            let _fake = fake_models(vec![official_list(&[])], CodexKeychainLogin::Missing, None);
+            let seen = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+            let mock = {
+                let seen = seen.clone();
+                axum::Router::new().fallback(move |uri: http::Uri, headers: http::HeaderMap, bytes: axum::body::Bytes| {
+                    let seen = seen.clone();
+                    async move {
+                        seen.lock().await.push((uri.to_string(), headers, serde_json::from_slice::<Value>(&bytes).unwrap()));
+                        let gemini = json!({"responseId": "gemini-mixed", "modelVersion": "gemini-4-argon", "candidates": [{"content": {"role": "model", "parts": [{"text": "READY"}]}, "finishReason": "STOP"}], "usageMetadata": {"promptTokenCount": 4, "candidatesTokenCount": 1, "totalTokenCount": 5}});
+                        if uri.path().contains("streamGenerateContent") {
+                            (http::StatusCode::OK, [(http::header::CONTENT_TYPE, "text/event-stream")], format!("data: {gemini}\n\n"))
+                        } else {
+                            (http::StatusCode::OK, [(http::header::CONTENT_TYPE, "application/json")], gemini.to_string())
+                        }
+                    }
+                })
+            };
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let upstream = format!("http://{}", listener.local_addr().unwrap());
+            let mock_task = tokio::spawn(async move {
+                axum::serve(listener, mock).await.unwrap();
+            });
+            let official = codex_official();
+            let mut vertex = codex_native(
+                "vertex",
+                "https://aiplatform.googleapis.com",
+                "",
+                Some(json!({"models": [
+                    {"model": "gemini-4-argon", "displayName": "Gemini 4 Argon", "contextWindow": 1048576},
+                    {"model": "gemini-3.8-flash", "displayName": "Gemini 3.8 Flash", "contextWindow": 1048576}
+                ]})),
+            );
+            vertex.settings_config["auth"] = json!({"OPENAI_API_KEY": "google-test-token"});
+            vertex.settings_config["env"] = json!({"ANTHROPIC_VERTEX_BASE_URL": upstream});
+            vertex.meta = Some(crate::provider::ProviderMeta {
+                vertex_ai: Some(crate::provider::VertexAiConfig {
+                    project_id: "project".into(),
+                    location: "global".into(),
+                    publisher: Some("auto".into()),
+                    service_account: None,
+                }),
+                ..Default::default()
+            });
+            let state = state_with(AppType::Codex, &[official.clone(), vertex], &official.id).await;
+            enter(&state, &AppType::Codex, true)
+                .await
+                .expect("enter stack");
+            set_codex_member(&state, "vertex", true).await;
+            let doc = codex_doc();
+            assert_eq!(doc["model_provider"].as_str(), Some("custom"));
+            assert!(doc.get("openai_base_url").is_none());
+            let table = &doc["model_providers"]["custom"];
+            assert_eq!(table["name"].as_str(), Some("OpenAI"));
+            assert_eq!(table["requires_openai_auth"].as_bool(), Some(true));
+            assert_eq!(table["supports_websockets"].as_bool(), Some(false));
+            assert!(table.get("experimental_bearer_token").is_none());
+            assert!(table["base_url"]
+                .as_str()
+                .unwrap()
+                .starts_with("http://127.0.0.1:"));
+            assert_eq!(
+                mode(&AppType::Codex).proxy_route.as_deref(),
+                Some(official.id.as_str())
+            );
+            assert_eq!(fs::read(codex_auth_path()).unwrap(), auth_before);
+            let models = catalog_slugs();
+            assert!(models.contains(&"gpt-6-sol".to_string()));
+            assert!(models.contains(&"gpt-5.5".to_string()));
+            let gemini = models
+                .iter()
+                .find(|model| model.ends_with("/gemini-4-argon"))
+                .unwrap();
+            let target = crate::mode::stack::resolve(
+                &state.db,
+                &DeviceStore::for_device(),
+                &AppType::Codex,
+                gemini,
+            )
+            .unwrap();
+            assert!(
+                matches!(target, crate::mode::stack::Resolved::Hit(ref target) if target.provider.id == "vertex" && target.upstream_model == "gemini-4-argon")
+            );
+            assert!(stack_views(&state, &AppType::Codex)
+                .unwrap()
+                .notice
+                .is_none());
+            // The caller stays signed into ChatGPT, but stacked Vertex requests
+            // must use Google's token and return native Responses JSON/SSE.
+            let status = state.proxy_service.get_status().await.unwrap();
+            let client = reqwest::Client::builder().no_proxy().build().unwrap();
+            for stream in [false, true] {
+                let body = json!({"model": gemini, "stream": stream, "input": [{"role": "user", "content": "Reply READY"}]});
+                let compressed = zstd::stream::encode_all(body.to_string().as_bytes(), 0).unwrap();
+                let response = client
+                    .post(format!("http://127.0.0.1:{}/v1/responses", status.port))
+                    .header(http::header::AUTHORIZATION, "Bearer native-login-token")
+                    .header("chatgpt-account-id", "native-account")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .header(http::header::CONTENT_ENCODING, "zstd")
+                    .body(compressed)
+                    .send()
+                    .await
+                    .unwrap();
+                let status = response.status();
+                let text = response.text().await.unwrap();
+                assert!(status.is_success(), "{status}: {text}");
+                assert!(text.contains("READY"), "{text}");
+                if stream {
+                    assert!(text.contains("response.completed"), "{text}");
+                } else {
+                    assert_eq!(
+                        serde_json::from_str::<Value>(&text).unwrap()["object"],
+                        "response"
+                    );
+                }
+                let (uri, headers, body) = seen.lock().await.pop().unwrap();
+                assert!(
+                    uri.contains("/publishers/google/models/gemini-4-argon:"),
+                    "{uri}"
+                );
+                assert_eq!(
+                    headers[http::header::AUTHORIZATION],
+                    "Bearer google-test-token"
+                );
+                assert!(!headers.contains_key("chatgpt-account-id"));
+                assert_eq!(body["contents"][0]["role"], "user");
+                assert_eq!(fs::read(codex_auth_path()).unwrap(), auth_before);
+            }
+            mock_task.abort();
+            set_codex_member(&state, "vertex", false).await;
+            if !unified {
+                assert!(
+                    codex_doc().get("model_provider").is_none(),
+                    "restore the original session provider after removing Vertex"
+                );
+            }
+            assert_eq!(fs::read(codex_auth_path()).unwrap(), auth_before);
+            exit(&state, &AppType::Codex).await.expect("exit stack");
+            assert_eq!(fs::read(codex_auth_path()).unwrap(), auth_before);
+        }
     }
 
     /// #8014：本机 Codex 太旧时服务端只回隐藏条目。照写的话官方模型在选择器里一个都

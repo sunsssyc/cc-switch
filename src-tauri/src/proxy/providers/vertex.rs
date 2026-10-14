@@ -179,7 +179,13 @@ pub fn prepare_gemini_request(
     let project = config.project_id.trim();
     let location = config.location.trim();
     let model = model.trim_end_matches("[1m]");
-    if !valid_segment(project, false) || !valid_segment(model, false) {
+    // Decimal model versions (for example Gemini 3.8) are valid path IDs.
+    // Validate each component so empty or traversal-only segments stay invalid.
+    if !valid_segment(project, false)
+        || !model
+            .split('.')
+            .all(|segment| valid_segment(segment, false))
+    {
         return Err(ProxyError::ConfigError(
             "Vertex AI Gemini requires a valid project and model ID".into(),
         ));
@@ -421,6 +427,41 @@ mod tests {
             &mut json!({})
         )
         .is_err());
+    }
+
+    #[test]
+    fn gemini_decimal_versions_route_without_allowing_unsafe_path_ids() {
+        let config = VertexAiConfig {
+            project_id: "project".into(),
+            location: "global".into(),
+            publisher: Some("google".into()),
+            service_account: None,
+        };
+        for stream in [false, true] {
+            let url = prepare_gemini_request(
+                &config,
+                &provider(),
+                "gemini-3.8-flash",
+                stream,
+                &mut json!({}),
+            )
+            .unwrap();
+            assert!(url.contains("/models/gemini-3.8-flash:"));
+        }
+        for model in [
+            "",
+            ".",
+            "..",
+            "../other",
+            "gemini-3.8/other",
+            "gemini%2fother",
+            "gemini-3.8?alt=sse",
+        ] {
+            assert!(
+                prepare_gemini_request(&config, &provider(), model, false, &mut json!({})).is_err(),
+                "accepted unsafe model ID {model}"
+            );
+        }
     }
 
     #[test]

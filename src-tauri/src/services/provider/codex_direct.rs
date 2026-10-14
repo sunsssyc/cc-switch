@@ -645,7 +645,12 @@ pub(crate) fn plan(
                 (
                     RouteWrite::OfficialProxy {
                         base_url: base_url.to_string(),
-                        unified: crate::settings::unify_codex_session_history(),
+                        // A mixed official/Vertex catalog needs one explicit
+                        // HTTP provider. Keep native ChatGPT authentication, but
+                        // avoid the built-in OpenAI WebSocket transport for
+                        // Google models served through our Responses bridge.
+                        unified: crate::settings::unify_codex_session_history()
+                            || stack_has_vertex(target),
                     },
                     None,
                     auth,
@@ -654,7 +659,15 @@ pub(crate) fn plan(
                 // The proxy owns its URL/auth, but the route still owns the remote
                 // compaction preference. Preserve the existing UI's OpenAI-name
                 // toggle and Codex's explicit override (including "unsupported").
+                let vertex = crate::proxy::providers::vertex::is_vertex_provider(route);
                 let mut proxy_table = proxy_route_table(ROUTE_ID, base_url, false);
+                if vertex {
+                    // Google credentials belong to the proxy. A saved ChatGPT
+                    // login must not make the desktop client treat Gemini as an
+                    // OpenAI account model or require an OpenAI API key.
+                    proxy_table.insert("requires_openai_auth", toml_edit::value(false));
+                    proxy_table.insert("supports_websockets", toml_edit::value(false));
+                }
                 if let Route::Custom { table, .. } = &projection.route {
                     if table.get("name").and_then(Item::as_str) == Some("OpenAI") {
                         proxy_table.insert("name", toml_edit::value("OpenAI"));
@@ -677,7 +690,11 @@ pub(crate) fn plan(
                 }
                 (
                     RouteWrite::Custom(proxy_table),
-                    Some(RouteAuth::Bearer),
+                    if vertex {
+                        None
+                    } else {
+                        Some(RouteAuth::Bearer)
+                    },
                     AuthGoal::KeepNative,
                 )
             }
@@ -782,6 +799,11 @@ pub(crate) fn check_stack_member(provider: &Provider) -> Result<(), AppError> {
             name = provider.name
         ))
     })
+}
+
+fn stack_has_vertex(target: &Target<'_>) -> bool {
+    matches!(target, Target::Proxy { stack, .. } if stack.iter().any(|member|
+        crate::proxy::providers::vertex::is_vertex_provider(&member.provider)))
 }
 
 /// 路由那家的行指定了自己管理的模型目录文件（`model_catalog_json`）：Codex 只读那个

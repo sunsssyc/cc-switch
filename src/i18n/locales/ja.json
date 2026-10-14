@@ -5185,7 +5185,7 @@
     "deleteSessionHint": "履歴の整合性を保つため、DeepSeek Harness でこのセッションを削除してください。"
   },
   "vertexAi": {
-    "serviceAccountHint": "サービスアカウント認証では gcloud は不要です。キーは CC Switch のローカルプロバイダー設定に保存され、アクセストークンは自動取得・更新されます。対象プロジェクトのモデル呼び出し権限をアカウントに付与してください。",
+    "serviceAccountHint": "サービスアカウント認証では gcloud は不要です。キーは CC Switch のローカルプロバイダー設定に保存され、アクセストークンは自動取得・更新されます。対象プロジェクトのモデル呼び出し権限をアカウントに付与してください。 Vertex AI がデフォルトの場合、ChatGPT ログインや OpenAI API キーは不要です。集約のデフォルトが OpenAI Official の場合は、ChatGPT ログインを保持したまま公式モデルと Vertex モデルを使用できます。Vertex AI に切り替えた後は Codex を完全に再起動して新しいチャットを開始してください。既存のチャットには以前のプロバイダーが残る場合があります。 対象プロジェクトで Vertex AI API（aiplatform.googleapis.com）を有効にしてください。",
     "invalidServiceAccount": "RSA 秘密鍵、アカウントのメールアドレス、Google トークンエンドポイントを含む有効なサービスアカウント JSON キーを選択してください（1 MB 以下）。",
     "importing": "インポート中…",
     "removeServiceAccount": "キーを削除",
@@ -5193,7 +5193,7 @@
     "importServiceAccount": "JSON キーをインポート",
     "serviceAccount": "サービスアカウント JSON キー",
     "geminiLocationRequired": "Gemini 3.8 以降では global、us、eu のいずれかを選択してください。",
-    "authHint": "ルーティングまたは集約で Claude と Gemini を使用し、選択したモデルに自動対応します。リージョンは global、us、eu を選択してください。サービスアカウント JSON キーをインポートすれば gcloud は不要です。gcloud ADC または Google OAuth アクセストークンも使用できます。",
+    "authHint": "ルーティングまたは集約で Claude と Gemini を使用し、選択したモデルに自動対応します。リージョンは global、us、eu を選択してください。サービスアカウント JSON キーをインポートすれば gcloud は不要です。gcloud ADC または Google OAuth アクセストークンも使用できます。 Vertex AI がデフォルトの場合、ChatGPT ログインや OpenAI API キーは不要です。集約のデフォルトが OpenAI Official の場合は、ChatGPT ログインを保持したまま公式モデルと Vertex モデルを使用できます。Vertex AI に切り替えた後は Codex を完全に再起動して新しいチャットを開始してください。既存のチャットには以前のプロバイダーが残る場合があります。 対象プロジェクトで Vertex AI API（aiplatform.googleapis.com）を有効にしてください。",
     "geminiAuthHint": "Gemini 4 Argon / Gemini 3.8 Flash はローカルルーティングまたは集約で使用します。リージョンは global、us、eu を選択してください。gcloud auth application-default login で ADC を設定するか、Google OAuth アクセストークンを入力し、有効期限後に更新してください。",
     "projectId": "Google Cloud プロジェクト ID",
     "location": "Vertex AI リージョン",
