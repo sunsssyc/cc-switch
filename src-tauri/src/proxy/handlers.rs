@@ -2033,6 +2033,7 @@ async fn handle_codex_anthropic_to_responses_transform(
             state,
             status,
             connection_guard,
+            vertex_gemini,
         );
     }
 
@@ -2093,6 +2094,7 @@ async fn handle_codex_anthropic_to_responses_transform(
             state,
             status,
             connection_guard,
+            vertex_gemini,
         );
     }
 
@@ -2180,6 +2182,7 @@ fn build_codex_anthropic_sse_response(
     state: &ProxyState,
     status: StatusCode,
     connection_guard: Option<ActiveConnectionGuard>,
+    vertex_gemini: bool,
 ) -> Result<axum::response::Response, ProxyError> {
     let usage_collector = if usage_logging_enabled(state) {
         let state = state.clone();
@@ -2256,7 +2259,14 @@ fn build_codex_anthropic_sse_response(
         axum::http::HeaderValue::from_static("no-cache"),
     );
 
-    let body = axum::body::Body::from_stream(logged_stream);
+    let body = if vertex_gemini {
+        axum::body::Body::from_stream(super::sse::with_keepalive(
+            logged_stream,
+            std::time::Duration::from_secs(10),
+        ))
+    } else {
+        axum::body::Body::from_stream(logged_stream)
+    };
     Ok((headers, body).into_response())
 }
 

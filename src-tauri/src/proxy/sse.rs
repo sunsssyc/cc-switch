@@ -1,3 +1,33 @@
+/// Keep a Responses client connected while a transforming upstream buffers
+/// reasoning/tool calls. Input chunks must contain complete SSE frames. Wrap
+/// *outside* upstream timeout/usage accounting so pings neither hide a dead
+/// upstream nor count as generated tokens or first-token latency.
+pub(crate) fn with_keepalive(
+    stream: impl futures::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send + 'static,
+    interval: std::time::Duration,
+) -> impl futures::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send {
+    use futures::StreamExt;
+    async_stream::stream! {
+        tokio::pin!(stream);
+        loop {
+            tokio::select! {
+                biased;
+                item = stream.next() => match item {
+                    Some(item) => {
+                        let failed = item.is_err();
+                        yield item;
+                        if failed { break; }
+                    }
+                    None => break,
+                },
+                _ = tokio::time::sleep(interval) => {
+                    yield Ok(bytes::Bytes::from_static(b"event: ping\ndata: {\"type\":\"ping\"}\n\n"));
+                }
+            }
+        }
+    }
+}
+
 #[inline]
 pub(crate) fn strip_sse_field<'a>(line: &'a str, field: &str) -> Option<&'a str> {
     line.strip_prefix(&format!("{field}: "))
@@ -90,6 +120,45 @@ pub(crate) fn append_utf8_safe(buffer: &mut String, remainder: &mut Vec<u8>, new
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn keepalive_preserves_frames_and_stops_at_upstream_eof() {
+        use futures::StreamExt;
+        let upstream = async_stream::stream! {
+            tokio::time::sleep(std::time::Duration::from_millis(35)).await;
+            yield Ok(bytes::Bytes::from_static(b"data: {\"type\":\"response.completed\"}\n\n"));
+        };
+        let stream = super::with_keepalive(upstream, std::time::Duration::from_millis(5));
+        tokio::pin!(stream);
+        let first = stream.next().await.unwrap().unwrap();
+        assert!(first.starts_with(b"event: ping"));
+        let remaining: Vec<_> = stream.collect().await;
+        assert_eq!(
+            remaining.last().unwrap().as_ref().unwrap().as_ref(),
+            b"data: {\"type\":\"response.completed\"}\n\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn keepalive_does_not_mask_upstream_timeout() {
+        use futures::StreamExt;
+        let upstream = async_stream::stream! {
+            tokio::time::sleep(std::time::Duration::from_millis(35)).await;
+            yield Err(std::io::Error::other("upstream idle timeout"));
+        };
+        let stream = super::with_keepalive(upstream, std::time::Duration::from_millis(5));
+        tokio::pin!(stream);
+        assert!(stream
+            .next()
+            .await
+            .unwrap()
+            .unwrap()
+            .starts_with(b"event: ping"));
+        let remaining: Vec<_> = stream.collect().await;
+        assert_eq!(
+            remaining.last().unwrap().as_ref().unwrap_err().to_string(),
+            "upstream idle timeout"
+        );
+    }
     use super::{append_utf8_safe, strip_sse_field, take_sse_block};
 
     #[test]

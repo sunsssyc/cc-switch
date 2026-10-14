@@ -778,6 +778,18 @@ fn split_function_response_parts(parts: &[Value]) -> Option<(Vec<Value>, Vec<Val
     )
 }
 
+#[test]
+fn fallback_tool_replay_places_signature_on_part_not_function_call() {
+    let signature = std::collections::HashMap::from([("call_1".into(), "signed-state".into())]);
+    let parts = convert_message_content_to_parts(
+        Some(&json!([{"type":"tool_use", "id":"call_1", "name":"exec_command", "input":{"cmd":"pwd"}}])),
+        "assistant", &mut std::collections::HashMap::new(), &signature, false,
+    ).unwrap();
+    assert_eq!(parts[0]["thoughtSignature"], "signed-state");
+    assert!(parts[0]["functionCall"].get("thoughtSignature").is_none());
+    assert_eq!(parts[0]["functionCall"]["args"], json!({"cmd":"pwd"}));
+}
+
 fn convert_message_content_to_parts(
     content: Option<&Value>,
     role: &str,
