@@ -1076,10 +1076,11 @@ fn fill_skip_thought_signatures(contents: &mut [Value]) -> usize {
 fn is_gemini_3_series(model: &str) -> bool {
     let normalized = model.trim().to_ascii_lowercase();
     normalized.starts_with("gemini-3")
+        || normalized.starts_with("gemini-4")
         || normalized
             .rsplit('/')
             .next()
-            .is_some_and(|tail| tail.starts_with("gemini-3"))
+            .is_some_and(|tail| tail.starts_with("gemini-3") || tail.starts_with("gemini-4"))
 }
 
 fn gemini_part_from_chat_image(part: &Value) -> Option<Value> {
@@ -1533,6 +1534,29 @@ fn map_finish_reason(reason: Option<&str>, has_tool_use: bool) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gemini_4_and_3_8_map_reasoning_to_levels_without_token_budgets() {
+        for model in ["gemini-4-argon", "gemini-3.8-flash"] {
+            for (effort, expected) in [
+                ("low", "low"),
+                ("medium", "medium"),
+                ("high", "high"),
+                ("xhigh", "high"),
+                ("max", "high"),
+            ] {
+                let result = anthropic_to_gemini(json!({"model": model, "max_tokens": 2048,
+                    "output_config": {"effort": effort}, "thinking": {"type": "enabled", "budget_tokens": 1024},
+                    "messages": [{"role": "user", "content": "hi"}]})).unwrap();
+                assert_eq!(
+                    result["generationConfig"]["thinkingConfig"],
+                    json!({"thinkingLevel": expected}),
+                    "model={model}, effort={effort}"
+                );
+                assert_eq!(result["generationConfig"]["maxOutputTokens"], 2048);
+            }
+        }
+    }
 
     #[test]
     fn anthropic_to_gemini_maps_system_and_messages() {

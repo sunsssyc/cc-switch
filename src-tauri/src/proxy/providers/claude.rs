@@ -33,6 +33,13 @@ const REASONING_VENDOR_HINTS: &[&str] = &["deepseek", "mimo", "xiaomimimo"];
 /// 供 handler/forwarder 外部使用的公开函数。
 /// 优先级：meta.apiFormat > settings_config.api_format > openrouter_compat_mode > 默认 "anthropic"
 pub fn get_claude_api_format(provider: &Provider) -> &'static str {
+    if super::vertex::is_vertex_provider(provider) {
+        return if super::vertex::is_gemini_provider(provider) {
+            "gemini_native"
+        } else {
+            "anthropic"
+        };
+    }
     // 0) Managed Responses OAuth providers force their wire protocol. This is
     // an invariant, not a preset default: editable metadata must not be able to
     // send an Anthropic Messages body to a Responses-only upstream.
@@ -748,6 +755,9 @@ impl ProviderAdapter for ClaudeAdapter {
     }
 
     fn extract_base_url(&self, provider: &Provider) -> Result<String, ProxyError> {
+        if super::vertex::is_vertex_provider(provider) {
+            return super::vertex::base_url(provider);
+        }
         // Codex OAuth: 强制使用 ChatGPT 后端 API 端点（忽略用户配置的 base_url）
         if self.is_codex_oauth(provider) {
             return Ok(super::CHATGPT_CODEX_BASE_URL.to_string());

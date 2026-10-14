@@ -5182,5 +5182,16 @@
       "managedHint": "This account is managed in the Auth Center; the card disappears after you sign out."
     },
     "deleteSessionHint": "Delete this session in DeepSeek Harness to keep its history consistent."
+  },
+  "vertexAi": {
+    "geminiLocationRequired": "Choose global, us or eu for Gemini 3.8 and later.",
+    "geminiAuthHint": "Use Gemini 4 Argon / Gemini 3.8 Flash through local Routing or Aggregation. Select global, us or eu. Run gcloud auth application-default login to configure ADC, or supply a Google OAuth access token and replace it when it expires.",
+    "projectId": "Google Cloud project ID",
+    "location": "Vertex AI location",
+    "accessToken": "Google access token (optional)",
+    "accessTokenPlaceholder": "Leave empty to use gcloud ADC",
+    "invalidConfig": "Enter a valid Google Cloud project ID and location (letters, numbers, hyphens and underscores).",
+    "codexAuthHint": "Requires local routing. Enable the Claude model in Vertex AI Model Garden, then run gcloud auth application-default login. CC Switch refreshes access tokens through gcloud. You can also supply a Google OAuth access token; replace it when it expires. API keys are not supported for Claude on Vertex AI.",
+    "claudeAuthHint": "Enable the Claude model in Vertex AI Model Garden, then run gcloud auth application-default login. Direct mode uses Claude Code’s native Vertex AI authentication. Local routing uses gcloud ADC. Choose a location where your model is available."
   }
 }

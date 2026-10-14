@@ -407,6 +407,37 @@ describe("providerNeedsRouting", () => {
         ),
       ).toBe(false);
     });
+
+    it("Codex Vertex AI requires routing even with stale Responses metadata", () => {
+      expect(
+        providerNeedsRouting(
+          "codex",
+          mkProvider({
+            meta: {
+              apiFormat: "openai_responses",
+              vertexAi: { projectId: "project", location: "global" },
+            },
+          }),
+        ),
+      ).toBe(true);
+    });
+    it("Claude Vertex Gemini requires routing even with stale Anthropic metadata", () => {
+      expect(
+        providerNeedsRouting(
+          "claude",
+          mkProvider({
+            meta: {
+              apiFormat: "anthropic",
+              vertexAi: {
+                projectId: "project",
+                location: "global",
+                publisher: "google",
+              },
+            },
+          }),
+        ),
+      ).toBe(true);
+    });
   });
 
   describe("Claude Desktop 路由判定", () => {

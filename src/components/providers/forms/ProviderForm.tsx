@@ -30,6 +30,7 @@ import type {
   CodexChatReasoning,
   PromptCacheRoutingMode,
   ClaudeApiKeyField,
+  VertexAiConfig,
 } from "@/types";
 import {
   providerPresets,
@@ -77,6 +78,7 @@ import {
   setCodexModelName as setCodexModelNameInConfig,
 } from "@/utils/providerConfigUtils";
 import { getCodexCustomTemplate } from "@/config/codexTemplates";
+import { VertexAiFields } from "./VertexAiFields";
 import CodexConfigEditor from "./CodexConfigEditor";
 import { CommonConfigEditor } from "./CommonConfigEditor";
 import GeminiConfigEditor from "./GeminiConfigEditor";
@@ -623,6 +625,54 @@ function ProviderFormFull({
     if (appId !== "claude") return "anthropic";
     return initialData?.meta?.apiFormat ?? "anthropic";
   });
+
+  const [localVertexAi, setLocalVertexAi] = useState(
+    initialData?.meta?.vertexAi,
+  );
+  const claudeSettingsText = form.watch("settingsConfig");
+  const claudeVertexAi = useMemo<VertexAiConfig | undefined>(() => {
+    if (appId !== "claude") return undefined;
+    try {
+      const env = JSON.parse(claudeSettingsText || "{}").env;
+      if (
+        !["1", "true"].includes(
+          String(env?.CLAUDE_CODE_USE_VERTEX).toLowerCase(),
+        )
+      )
+        return undefined;
+      return {
+        projectId:
+          typeof env.ANTHROPIC_VERTEX_PROJECT_ID === "string"
+            ? env.ANTHROPIC_VERTEX_PROJECT_ID
+            : "",
+        location:
+          typeof env.CLOUD_ML_REGION === "string"
+            ? env.CLOUD_ML_REGION
+            : "us-east5",
+      };
+    } catch {
+      return undefined;
+    }
+  }, [appId, claudeSettingsText]);
+  const vertexAi = localVertexAi ?? claudeVertexAi;
+  const handleVertexAiChange = (
+    field: "projectId" | "location",
+    value: string,
+  ) => {
+    if (localVertexAi) {
+      setLocalVertexAi((previous) =>
+        previous ? { ...previous, [field]: value } : previous,
+      );
+    } else {
+      const config = JSON.parse(form.getValues("settingsConfig"));
+      config.env[
+        field === "projectId"
+          ? "ANTHROPIC_VERTEX_PROJECT_ID"
+          : "CLOUD_ML_REGION"
+      ] = value;
+      handleSettingsConfigChange(JSON.stringify(config, null, 2));
+    }
+  };
 
   const handleApiFormatChange = useCallback((format: ClaudeApiFormat) => {
     setLocalApiFormat(format);
@@ -1641,6 +1691,23 @@ function ProviderFormFull({
       }
     }
 
+    if (
+      vertexAi &&
+      (!/^[A-Za-z0-9_-]+$/.test(vertexAi.projectId.trim()) ||
+        !/^[A-Za-z0-9_-]+$/.test(vertexAi.location.trim()))
+    ) {
+      toast.error(t("vertexAi.invalidConfig"));
+      return;
+    }
+
+    if (
+      vertexAi?.publisher === "google" &&
+      !["global", "us", "eu"].includes(vertexAi.location.trim())
+    ) {
+      toast.error(t("vertexAi.geminiLocationRequired"));
+      return;
+    }
+
     // 非官方供应商端点 / API Key 空：A 类
     // cloud_provider（如 Bedrock）通过模板变量处理认证，跳过通用校验
     if (category !== "official" && category !== "cloud_provider") {
@@ -1988,6 +2055,7 @@ function ProviderFormFull({
 
     const nextMeta: ProviderMeta = {
       ...(baseMeta ?? {}),
+      vertexAi: localVertexAi,
       opencodeConfigFormat: isNativeOpencode ? "v2" : undefined,
       // Claude Code、Codex、Gemini CLI 的通用配置片段已冻结：沿用行里原有的标记，新增时
       // 由后端写 true（兼容旧版）。
@@ -2078,9 +2146,11 @@ function ProviderFormFull({
             ? "openai_responses"
             : localApiFormat
           : appId === "codex" && category !== "official" && !isCopilotProvider
-            ? isXaiOauthProvider
-              ? "openai_responses"
-              : localCodexApiFormat
+            ? localVertexAi
+              ? "anthropic"
+              : isXaiOauthProvider
+                ? "openai_responses"
+                : localCodexApiFormat
             : undefined,
       codexCopilotApiFormat:
         appId === "codex" &&
@@ -2249,6 +2319,7 @@ function ProviderFormFull({
   });
 
   const handlePresetChange = (value: string) => {
+    setLocalVertexAi(undefined);
     setSelectedPresetId(value);
     // Stack 模型是这家自己的：换预设后回到跟着新预设的模型映射。
     setClaudeStackRows(null);
@@ -2300,6 +2371,7 @@ function ProviderFormFull({
 
     if (appId === "codex") {
       const preset = entry.preset as CodexProviderPreset;
+      setLocalVertexAi(preset.vertexAi);
       const auth = preset.auth ?? {};
       const config = preset.config ?? "";
 
@@ -2439,6 +2511,10 @@ function ProviderFormFull({
           )
         : templated;
 
+    setLocalVertexAi(preset.vertexAi);
+    setClaudeStackRows(
+      preset.stackModels?.map(createClaudeStackModelRow) ?? null,
+    );
     if (preset.apiFormat) {
       setLocalApiFormat(preset.apiFormat);
     } else {
@@ -2698,10 +2774,33 @@ function ProviderFormFull({
             }
           />
 
+          {vertexAi && (
+            <VertexAiFields
+              {...vertexAi}
+              onChange={handleVertexAiChange}
+              isGemini={vertexAi.publisher === "google"}
+              accessToken={
+                appId === "codex"
+                  ? codexApiKey
+                  : localVertexAi
+                    ? apiKey
+                    : undefined
+              }
+              onAccessTokenChange={
+                appId === "codex"
+                  ? handleCodexApiKeyChange
+                  : localVertexAi
+                    ? handleApiKeyChange
+                    : undefined
+              }
+            />
+          )}
+
           {appId === "claude" && (
             <ClaudeFormFields
               providerId={providerId}
               shouldShowApiKey={
+                !localVertexAi &&
                 (category !== "cloud_provider" ||
                   hasApiKeyField(form.getValues("settingsConfig"), "claude")) &&
                 shouldShowApiKey(form.getValues("settingsConfig"), isEditMode)
@@ -2797,6 +2896,7 @@ function ProviderFormFull({
 
           {appId === "codex" && (
             <CodexFormFields
+              isVertexAi={Boolean(localVertexAi)}
               providerId={providerId}
               isCopilotPreset={isCopilotProvider}
               isCopilotAuthenticated={isCopilotAuthenticated}

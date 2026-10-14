@@ -1157,7 +1157,10 @@ async fn handle_responses_for_app(
     ctx.provider = result.provider;
     let response = result.response;
 
-    if codex_upstream_format == Some(CodexUpstreamFormat::Anthropic) {
+    if matches!(
+        codex_upstream_format,
+        Some(CodexUpstreamFormat::Anthropic | CodexUpstreamFormat::Gemini)
+    ) {
         return handle_codex_anthropic_to_responses_transform(
             response,
             &ctx,
@@ -1486,7 +1489,10 @@ async fn handle_responses_compact_for_app(
     ctx.provider = result.provider;
     let response = result.response;
 
-    if codex_upstream_format == Some(CodexUpstreamFormat::Anthropic) {
+    if matches!(
+        codex_upstream_format,
+        Some(CodexUpstreamFormat::Anthropic | CodexUpstreamFormat::Gemini)
+    ) {
         return handle_codex_anthropic_to_responses_transform(
             response,
             &ctx,
@@ -1986,6 +1992,14 @@ async fn handle_codex_anthropic_to_responses_transform(
     codex_tool_context: transform_codex_chat::CodexToolContext,
 ) -> Result<axum::response::Response, ProxyError> {
     let status = response.status();
+    let vertex_gemini = super::providers::vertex::is_gemini_provider(&ctx.provider);
+    let tool_schema_hints = vertex_gemini.then(|| {
+        let tools: Vec<Value> = codex_tool_context.chat_tools().iter().filter_map(|tool| {
+            let function = tool.get("function")?;
+            Some(serde_json::json!({"name": function.get("name"), "input_schema": function.get("parameters")}))
+        }).collect();
+        transform_gemini::extract_anthropic_tool_schema_hints(&serde_json::json!({"tools": tools}))
+    });
 
     if !status.is_success() {
         return handle_codex_chat_error_response(response, ctx, status, is_stream).await;
@@ -1996,6 +2010,19 @@ async fn handle_codex_anthropic_to_responses_transform(
     // envelopes and gateways that ignore stream:true can be converted faithfully.
     if response.is_sse() || (is_stream && !response.is_json()) {
         let stream = response.bytes_stream();
+        let stream: std::pin::Pin<
+            Box<dyn futures::Stream<Item = Result<Bytes, std::io::Error>> + Send>,
+        > = if vertex_gemini {
+            Box::pin(create_anthropic_sse_stream_from_gemini(
+                stream,
+                Some(state.gemini_shadow.clone()),
+                Some(ctx.provider.id.clone()),
+                Some(ctx.session_id.clone()),
+                tool_schema_hints.clone(),
+            ))
+        } else {
+            Box::pin(stream)
+        };
         let sse_stream =
             create_responses_sse_stream_from_anthropic_with_context(stream, codex_tool_context);
         return build_codex_anthropic_sse_response(
@@ -2040,6 +2067,18 @@ async fn handle_codex_anthropic_to_responses_transform(
                 &body_str,
             ));
         }
+    };
+
+    let anthropic_response = if vertex_gemini {
+        transform_gemini::gemini_to_anthropic_with_shadow_and_hints(
+            anthropic_response,
+            Some(state.gemini_shadow.as_ref()),
+            Some(&ctx.provider.id),
+            Some(&ctx.session_id),
+            tool_schema_hints.as_ref(),
+        )?
+    } else {
+        anthropic_response
     };
 
     if is_stream {
@@ -4578,6 +4617,119 @@ mod stack_tests {
 
     fn proxy_state() -> ProxyState {
         ProxyState::for_test(Arc::new(Database::memory().expect("memory db")))
+    }
+
+    #[tokio::test]
+    async fn vertex_gemini_codex_responses_keep_tool_signatures_in_json_and_sse() {
+        for stream in [false, true] {
+            let state = proxy_state();
+            state.config.write().await.enable_logging = false;
+            let mut provider = crate::provider::Provider::with_id(
+                "vertex-gemini".into(),
+                "Gemini".into(),
+                json!({}),
+                None,
+            );
+            provider.meta = Some(crate::provider::ProviderMeta {
+                vertex_ai: Some(crate::provider::VertexAiConfig {
+                    project_id: "project".into(),
+                    location: "global".into(),
+                    publisher: Some("google".into()),
+                }),
+                ..Default::default()
+            });
+            let request = json!({"model": "gemini-4-argon", "input": [{"role": "user", "content": "read a file"}],
+                "tools": [{"type": "function", "name": "read_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}]});
+            let context = RequestContext::new(
+                &state,
+                &request,
+                &axum::http::HeaderMap::new(),
+                AppType::Codex,
+                "Codex",
+                "codex",
+                Some(crate::mode::stack::StackTarget {
+                    provider,
+                    upstream_model: "gemini-4-argon".into(),
+                    original_model: "gemini-4-argon".into(),
+                }),
+            )
+            .await
+            .unwrap();
+            let gemini = json!({"responseId": "gemini-r1", "modelVersion": "gemini-4-argon",
+                "candidates": [{"content": {"role": "model", "parts": [{"functionCall": {"id": "call-1", "name": "read_file", "args": {"path": "main.rs"}}, "thoughtSignature": "signed-tool-state"}]}, "finishReason": "STOP"}],
+                "usageMetadata": {"promptTokenCount": 8, "candidatesTokenCount": 4, "totalTokenCount": 12}});
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(
+                "content-type",
+                if stream {
+                    "text/event-stream"
+                } else {
+                    "application/json"
+                }
+                .parse()
+                .unwrap(),
+            );
+            let bytes = if stream {
+                Bytes::from(format!("data: {gemini}\n\n"))
+            } else {
+                Bytes::from(gemini.to_string())
+            };
+            let response = handle_codex_anthropic_to_responses_transform(
+                super::super::hyper_client::ProxyResponse::buffered(StatusCode::OK, headers, bytes),
+                &context,
+                &state,
+                stream,
+                None,
+                transform_codex_chat::build_codex_tool_context_from_request(&request),
+            )
+            .await
+            .unwrap();
+            let data = response.into_body().collect().await.unwrap().to_bytes();
+            let response = if stream {
+                String::from_utf8_lossy(&data)
+                    .lines()
+                    .filter_map(|line| line.strip_prefix("data: "))
+                    .filter_map(|data| serde_json::from_str::<Value>(data).ok())
+                    .find(|event| event["type"] == "response.completed")
+                    .unwrap()["response"]
+                    .clone()
+            } else {
+                serde_json::from_slice::<Value>(&data).unwrap()
+            };
+            let call = response["output"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["type"] == "function_call")
+                .unwrap();
+            assert_eq!(call["name"], "read_file");
+            assert_eq!(
+                serde_json::from_str::<Value>(call["arguments"].as_str().unwrap()).unwrap(),
+                json!({"path": "main.rs"})
+            );
+            let next = transform_codex_anthropic::responses_request_to_anthropic(json!({
+                "model": "gemini-4-argon", "input": [call, {"type": "function_call_output", "call_id": call["call_id"], "output": "file contents"}]
+            }), 8192).unwrap();
+            let replay = transform_gemini::anthropic_to_gemini_with_shadow(
+                next,
+                Some(state.gemini_shadow.as_ref()),
+                Some(&context.provider.id),
+                Some(&context.session_id),
+            )
+            .unwrap();
+            let parts: Vec<&Value> = replay["contents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|turn| turn["parts"].as_array().unwrap().iter())
+                .collect();
+            assert!(parts
+                .iter()
+                .any(|part| part["thoughtSignature"] == "signed-tool-state"));
+            assert!(parts
+                .iter()
+                .any(|part| part["functionResponse"]["name"] == "read_file"));
+        }
     }
 
     fn post(path: &str, model: &str) -> axum::extract::Request {

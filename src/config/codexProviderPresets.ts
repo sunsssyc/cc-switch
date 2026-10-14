@@ -4,6 +4,7 @@
 import { ProviderCategory } from "../types";
 import type {
   CodexApiFormat,
+  VertexAiConfig,
   CodexCatalogModel,
   CodexChatReasoning,
   PromptCacheRoutingMode,
@@ -39,6 +40,7 @@ export interface CodexProviderPreset extends PresetFamilyFields {
   iconColor?: string; // 图标颜色
   // Codex API 格式
   apiFormat?: CodexApiFormat;
+  vertexAi?: VertexAiConfig;
   // 仅用于区分托管认证来源；各 OAuth provider 的认证流程彼此独立。
   providerType?: "codex_oauth" | "xai_oauth" | "github_copilot";
   // OAuth 预设：隐藏 API Key 输入，保存前要求已登录托管账号
@@ -5072,5 +5074,51 @@ base_url = "https://cc-api.pipellm.ai/v1"`,
       "gpt-6.1-sol",
     ),
     icon: "aicoming",
+  },
+  {
+    name: "Google Vertex AI",
+    websiteUrl: "https://cloud.google.com/vertex-ai",
+    category: "cloud_provider",
+    auth: {},
+    config: generateThirdPartyConfig(
+      "Google Vertex AI",
+      "https://aiplatform.googleapis.com",
+      "claude-sonnet-5",
+      { requiresOpenAiAuth: false },
+    ),
+    apiFormat: "anthropic",
+    vertexAi: { projectId: "", location: "global" },
+    modelCatalog: modelCatalog(["claude-sonnet-5", "claude-opus-5"]),
+    icon: "googlecloud",
+    iconColor: "#4285F4",
+  },
+  {
+    name: "Google Vertex AI (Gemini)",
+    websiteUrl: "https://cloud.google.com/vertex-ai",
+    category: "cloud_provider",
+    auth: {},
+    config: generateThirdPartyConfig(
+      "Google Vertex AI (Gemini)",
+      "https://aiplatform.googleapis.com",
+      "gemini-4-argon",
+      { requiresOpenAiAuth: false },
+    ),
+    // Reuse the Responses ⇄ Messages bridge before the Gemini native transport.
+    apiFormat: "anthropic",
+    vertexAi: { projectId: "", location: "global", publisher: "google" },
+    modelCatalog: modelCatalog([
+      {
+        model: "gemini-4-argon",
+        displayName: "Gemini 4 Argon",
+        contextWindow: 1048576,
+      },
+      {
+        model: "gemini-3.8-flash",
+        displayName: "Gemini 3.8 Flash",
+        contextWindow: 1048576,
+      },
+    ]),
+    icon: "googlecloud",
+    iconColor: "#4285F4",
   },
 ];

@@ -2,6 +2,7 @@
  * 预设供应商配置模板
  */
 import { ProviderCategory } from "../types";
+import type { VertexAiConfig, ClaudeStackModel } from "../types";
 import type { PresetFamilyFields } from "./presetFamilies";
 
 export interface TemplateValueConfig {
@@ -24,6 +25,8 @@ export interface PresetTheme {
 }
 
 export interface ProviderPreset extends PresetFamilyFields {
+  vertexAi?: VertexAiConfig;
+  stackModels?: ClaudeStackModel[];
   name: string;
   nameKey?: string; // i18n key for localized display name
   websiteUrl: string;
@@ -3198,5 +3201,51 @@ export const providerPresets: ProviderPreset[] = [
     },
     category: "aggregator",
     icon: "aicoming",
+  },
+  {
+    name: "Google Vertex AI",
+    websiteUrl: "https://cloud.google.com/vertex-ai",
+    category: "cloud_provider",
+    settingsConfig: {
+      env: {
+        CLAUDE_CODE_USE_VERTEX: "1",
+        ANTHROPIC_VERTEX_PROJECT_ID: "",
+        CLOUD_ML_REGION: "global",
+        ANTHROPIC_MODEL: "claude-sonnet-5",
+        ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-5",
+        ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-5",
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4-5@20251001",
+        VERTEX_REGION_CLAUDE_HAIKU_4_5: "us-east5",
+      },
+    },
+    icon: "googlecloud",
+    iconColor: "#4285F4",
+  },
+  {
+    name: "Google Vertex AI (Gemini)",
+    websiteUrl: "https://cloud.google.com/vertex-ai",
+    category: "cloud_provider",
+    apiFormat: "gemini_native",
+    vertexAi: { projectId: "", location: "global", publisher: "google" },
+    settingsConfig: {
+      env: {
+        ANTHROPIC_BASE_URL: "https://aiplatform.googleapis.com",
+        ANTHROPIC_AUTH_TOKEN: "",
+        ANTHROPIC_MODEL: "gemini-4-argon",
+        ANTHROPIC_DEFAULT_SONNET_MODEL: "gemini-4-argon",
+        ANTHROPIC_DEFAULT_OPUS_MODEL: "gemini-4-argon",
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: "gemini-3.8-flash",
+      },
+    },
+    stackModels: [
+      { model: "gemini-4-argon", displayName: "Gemini 4 Argon", oneM: true },
+      {
+        model: "gemini-3.8-flash",
+        displayName: "Gemini 3.8 Flash",
+        oneM: true,
+      },
+    ],
+    icon: "googlecloud",
+    iconColor: "#4285F4",
   },
 ];

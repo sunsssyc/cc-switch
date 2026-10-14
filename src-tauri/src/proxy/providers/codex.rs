@@ -26,6 +26,9 @@ pub struct CodexAdapter;
 /// OpenAI Chat Completions, even if the local Codex client is talking to CC
 /// Switch through the Responses API.
 pub fn codex_provider_uses_chat_completions(provider: &Provider) -> bool {
+    if super::vertex::is_vertex_provider(provider) {
+        return false;
+    }
     if let Some(api_format) = provider
         .meta
         .as_ref()
@@ -170,6 +173,9 @@ pub fn inject_codex_chat_prompt_cache_key(
 /// Determined solely from explicit config (apiFormat / wire_api); no base_url
 /// guessing — Anthropic gateway addresses vary widely and guessing easily misfires.
 pub fn codex_provider_uses_anthropic(provider: &Provider) -> bool {
+    if super::vertex::is_vertex_provider(provider) {
+        return true;
+    }
     if let Some(api_format) = provider
         .meta
         .as_ref()
@@ -1040,6 +1046,9 @@ impl ProviderAdapter for CodexAdapter {
     }
 
     fn extract_base_url(&self, provider: &Provider) -> Result<String, ProxyError> {
+        if super::vertex::is_vertex_provider(provider) {
+            return super::vertex::base_url(provider);
+        }
         if is_codex_official_provider(provider) {
             return Ok(super::CHATGPT_CODEX_BASE_URL.to_string());
         }

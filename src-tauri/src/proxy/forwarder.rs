@@ -218,6 +218,7 @@ pub enum CodexUpstreamFormat {
     NativeResponses,
     ChatCompletions,
     Anthropic,
+    Gemini,
 }
 
 struct CopilotRequestContext {
@@ -1381,8 +1382,17 @@ impl RequestForwarder {
         codex_upstream_format_out: &mut Option<CodexUpstreamFormat>,
     ) -> Result<(ProxyResponse, Option<String>, Option<String>), ProxyError> {
         *codex_upstream_format_out = None;
+        let vertex_config = matches!(app_type, AppType::Claude | AppType::Codex)
+            .then(|| super::providers::vertex::config(provider))
+            .flatten();
+        let vertex_gemini = super::providers::vertex::is_gemini_provider(provider);
+        let vertex_stream = vertex_gemini && is_streaming_request(endpoint, body, headers);
         // 使用适配器提取 base_url
-        let mut base_url = adapter.extract_base_url(provider)?;
+        let mut base_url = if vertex_config.is_some() {
+            "https://aiplatform.googleapis.com".to_string()
+        } else {
+            adapter.extract_base_url(provider)?
+        };
 
         let is_full_url = provider
             .meta
@@ -1391,7 +1401,8 @@ impl RequestForwarder {
             .unwrap_or(false)
             && !provider.is_codex_oauth()
             && !provider.is_xai_oauth()
-            && !provider.is_github_copilot();
+            && !provider.is_github_copilot()
+            && vertex_config.is_none();
 
         // GitHub Copilot API 使用 /chat/completions（无 /v1 前缀）
         let is_copilot = is_managed_copilot_request(app_type, provider, &base_url);
@@ -1664,7 +1675,11 @@ impl RequestForwarder {
             && super::providers::is_codex_responses_endpoint(endpoint)
         {
             Some(if codex_responses_to_anthropic {
-                CodexUpstreamFormat::Anthropic
+                if vertex_gemini {
+                    CodexUpstreamFormat::Gemini
+                } else {
+                    CodexUpstreamFormat::Anthropic
+                }
             } else if codex_responses_to_chat {
                 CodexUpstreamFormat::ChatCompletions
             } else {
@@ -1788,7 +1803,7 @@ impl RequestForwarder {
                 "/chat/completions" | "/responses" | "/responses/compact"
             );
 
-        let url = if matches!(resolved_claude_api_format.as_deref(), Some("gemini_native")) {
+        let mut url = if matches!(resolved_claude_api_format.as_deref(), Some("gemini_native")) {
             super::gemini_url::resolve_gemini_native_url(
                 &base_url,
                 &effective_endpoint,
@@ -1911,7 +1926,11 @@ impl RequestForwarder {
             let mut anthropic_body =
                 super::providers::transform_codex_anthropic::responses_request_to_anthropic(
                     mapped_body,
-                    DEFAULT_CODEX_ANTHROPIC_MAX_TOKENS,
+                    if vertex_gemini {
+                        32768
+                    } else {
+                        DEFAULT_CODEX_ANTHROPIC_MAX_TOKENS
+                    },
                 )?;
             // Handle the 1M-context marker [1m]: strip the model-name suffix (the
             // gateway doesn't recognize it) and set the flag so the beta header is
@@ -1937,7 +1956,23 @@ impl RequestForwarder {
                 &mut anthropic_body,
                 &codex_anthropic_cache_config(&self.optimizer_config),
             );
-            anthropic_body
+            if vertex_gemini {
+                outbound_model = anthropic_body
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                if let Some(effort) = body.pointer("/reasoning/effort") {
+                    anthropic_body["output_config"] = serde_json::json!({"effort": effort});
+                }
+                super::providers::transform_gemini::anthropic_to_gemini_with_shadow(
+                    anthropic_body,
+                    Some(self.gemini_shadow.as_ref()),
+                    Some(&provider.id),
+                    Some(&self.session_id),
+                )?
+            } else {
+                anthropic_body
+            }
         } else if needs_transform {
             if adapter.name() == "Claude" {
                 let api_format = resolved_claude_api_format
@@ -2097,6 +2132,26 @@ impl RequestForwarder {
         {
             outbound_model = Some(m.to_string());
         }
+        if let Some(config) = vertex_config.as_ref() {
+            url = if vertex_gemini {
+                super::providers::vertex::prepare_gemini_request(
+                    config,
+                    provider,
+                    outbound_model
+                        .as_deref()
+                        .ok_or_else(|| ProxyError::InvalidRequest("Missing Gemini model".into()))?,
+                    vertex_stream,
+                    &mut filtered_body,
+                )?
+            } else {
+                super::providers::vertex::prepare_request(
+                    config,
+                    provider,
+                    &effective_endpoint,
+                    &mut filtered_body,
+                )?
+            };
+        }
         log_prompt_cache_trace(
             app_type,
             provider,
@@ -2106,7 +2161,7 @@ impl RequestForwarder {
             self.session_client_provided,
         );
         let request_is_streaming =
-            is_streaming_request(&effective_endpoint, &filtered_body, headers);
+            vertex_stream || is_streaming_request(&effective_endpoint, &filtered_body, headers);
         let force_identity_encoding = needs_transform
             || codex_responses_to_chat
             || codex_responses_to_anthropic
@@ -2119,7 +2174,19 @@ impl RequestForwarder {
         // 获取认证头（提前准备，用于内联替换），同时保留仅用于日志脱敏的
         // 精确认证材料。实际日志永远不输出这些值。
         let mut log_secrets: Vec<String> = Vec::new();
-        let mut auth_headers = if let Some(mut auth) = adapter.extract_auth(provider) {
+        let mut auth_headers = if vertex_config.is_some() {
+            let auth = adapter.extract_auth(provider);
+            let headers = super::providers::vertex::auth_headers(
+                auth.as_ref().map(|auth| auth.api_key.as_str()),
+            )
+            .await?;
+            for (_, value) in &headers {
+                if let Ok(value) = value.to_str() {
+                    log_secrets.push(value.trim_start_matches("Bearer ").to_string());
+                }
+            }
+            headers
+        } else if let Some(mut auth) = adapter.extract_auth(provider) {
             // GitHub Copilot 特殊处理：从 CopilotAuthManager 获取真实 token
             if auth.strategy == AuthStrategy::GitHubCopilot {
                 if let Some(app_handle) = &self.app_handle {
@@ -7060,6 +7127,196 @@ mod tests {
             axum::serve(listener, app).await.expect("serve upstream");
         });
         format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn vertex_ai_forwards_claude_and_codex_with_google_auth_and_model_routing() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let seen = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let app = {
+            let seen = seen.clone();
+            axum::Router::new().fallback(move |uri: http::Uri, headers: HeaderMap, body: Bytes| {
+                let seen = seen.clone();
+                async move {
+                    seen.lock().await.push((uri.path().to_string(), headers, serde_json::from_slice::<Value>(&body).unwrap()));
+                    (StatusCode::OK, [(http::header::CONTENT_TYPE, "application/json")],
+                        json!({"id": "msg_vertex", "type": "message", "role": "assistant",
+                            "model": "claude-sonnet-5", "content": [{"type": "text", "text": "ok"}],
+                            "stop_reason": "end_turn", "usage": {"input_tokens": 2, "output_tokens": 1}}).to_string())
+                }
+            })
+        };
+        let base = serve_upstream(app).await;
+        for app_type in [AppType::Claude, AppType::Codex] {
+            for stream in [false, true] {
+                let mut provider = test_provider_with_type(None);
+                provider.category = Some("cloud_provider".into());
+                provider.settings_config = if matches!(app_type, AppType::Claude) {
+                    json!({"env": {
+                        "CLAUDE_CODE_USE_VERTEX": "1", "ANTHROPIC_VERTEX_PROJECT_ID": "test-project",
+                        "CLOUD_ML_REGION": "global", "ANTHROPIC_VERTEX_BASE_URL": base,
+                        "ANTHROPIC_AUTH_TOKEN": "google-token", "CLAUDE_CODE_SKIP_VERTEX_AUTH": "1",
+                        "ANTHROPIC_MODEL": "claude-sonnet-5"
+                    }})
+                } else {
+                    provider.meta = Some(crate::provider::ProviderMeta {
+                        // Stale editable format must not override Vertex's protocol.
+                        api_format: Some("openai_chat".into()),
+                        vertex_ai: Some(crate::provider::VertexAiConfig {
+                            project_id: "test-project".into(),
+                            location: "global".into(),
+                            publisher: None,
+                        }),
+                        ..Default::default()
+                    });
+                    json!({"auth": {"OPENAI_API_KEY": "google-token"},
+                        "env": {"ANTHROPIC_VERTEX_BASE_URL": base},
+                        "config": "model_provider = \"custom\"\nmodel = \"claude-sonnet-5\"\n[model_providers.custom]\nbase_url = \"https://aiplatform.googleapis.com\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n"})
+                };
+                let codex = matches!(app_type, AppType::Codex);
+                let body = if codex {
+                    json!({"model": "claude-sonnet-5", "stream": stream,
+                        "input": [{"role": "user", "content": "hi"}],
+                        "tools": [{"type": "function", "name": "read_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}]})
+                } else {
+                    json!({"model": "claude-sonnet-5", "stream": stream, "max_tokens": 128,
+                        "messages": [{"role": "user", "content": "hi"}],
+                        "tools": [{"name": "read_file", "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}}}]})
+                };
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    http::header::AUTHORIZATION,
+                    HeaderValue::from_static("Bearer local-placeholder"),
+                );
+                headers.insert("x-api-key", HeaderValue::from_static("local-placeholder"));
+                let result = test_forwarder(Duration::from_secs(5), Duration::from_secs(5))
+                    .forward_with_retry(
+                        &app_type,
+                        http::Method::POST,
+                        if codex { "/responses" } else { "/v1/messages" },
+                        body,
+                        headers,
+                        Extensions::new(),
+                        vec![provider],
+                    )
+                    .await
+                    .map_err(|error| error.error)
+                    .unwrap_or_else(|error| {
+                        panic!("Vertex forwarding ({app_type:?}, stream={stream}): {error}")
+                    });
+                assert_eq!(result.outbound_model.as_deref(), Some("claude-sonnet-5"));
+                if codex {
+                    assert_eq!(
+                        result.codex_upstream_format,
+                        Some(CodexUpstreamFormat::Anthropic)
+                    );
+                }
+                let (path, headers, body) = seen.lock().await.pop().unwrap();
+                let action = if stream {
+                    "streamRawPredict"
+                } else {
+                    "rawPredict"
+                };
+                assert_eq!(path, format!("/v1/projects/test-project/locations/global/publishers/anthropic/models/claude-sonnet-5:{action}"));
+                assert_eq!(headers[http::header::AUTHORIZATION], "Bearer google-token");
+                assert!(!headers.contains_key("x-api-key"));
+                assert!(body.get("model").is_none());
+                assert!(body.get("input").is_none());
+                assert_eq!(body["anthropic_version"], "vertex-2023-10-16");
+                assert_eq!(body["messages"][0]["role"], "user");
+                assert_eq!(body["tools"][0]["name"], "read_file");
+                assert_eq!(body["tools"][0]["input_schema"]["type"], "object");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn vertex_gemini_4_forwards_both_clients_as_generate_content() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let seen = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let app = {
+            let seen = seen.clone();
+            axum::Router::new().fallback(move |uri: http::Uri, headers: HeaderMap, body: Bytes| {
+                let seen = seen.clone();
+                async move {
+                    seen.lock().await.push((uri.to_string(), headers, serde_json::from_slice::<Value>(&body).unwrap()));
+                    (StatusCode::OK, [(http::header::CONTENT_TYPE, "application/json")],
+                        json!({"modelVersion": "gemini-4-argon", "candidates": [{"content": {"parts": [{"text": "ok"}]}, "finishReason": "STOP"}]}).to_string())
+                }
+            })
+        };
+        let base = serve_upstream(app).await;
+        for app_type in [AppType::Claude, AppType::Codex] {
+            for stream in [false, true] {
+                let codex = matches!(app_type, AppType::Codex);
+                let mut provider = test_provider_with_type(None);
+                provider.meta = Some(crate::provider::ProviderMeta {
+                    vertex_ai: Some(crate::provider::VertexAiConfig {
+                        project_id: "project".into(),
+                        location: "global".into(),
+                        publisher: Some("google".into()),
+                    }),
+                    ..Default::default()
+                });
+                provider.settings_config = if codex {
+                    json!({"auth": {"OPENAI_API_KEY": "google-token"}, "env": {"ANTHROPIC_VERTEX_BASE_URL": base},
+                        "config": "model_provider = \"custom\"\nmodel = \"gemini-4-argon\"\n[model_providers.custom]\nbase_url = \"https://aiplatform.googleapis.com\"\nwire_api = \"responses\"\nrequires_openai_auth = false"})
+                } else {
+                    json!({"env": {"ANTHROPIC_AUTH_TOKEN": "google-token", "ANTHROPIC_VERTEX_BASE_URL": base, "ANTHROPIC_MODEL": "gemini-4-argon"}})
+                };
+                let body = if codex {
+                    json!({"model": "gemini-4-argon", "stream": stream, "reasoning": {"effort": "high"},
+                        "input": [{"role": "user", "content": "hi"}],
+                        "tools": [{"type": "function", "name": "read_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}]})
+                } else {
+                    json!({"model": "gemini-4-argon", "stream": stream, "max_tokens": 4096,
+                        "output_config": {"effort": "high"},
+                        "thinking": {"type": "enabled", "budget_tokens": 16384},
+                        "messages": [{"role": "user", "content": "hi"}],
+                        "tools": [{"name": "read_file", "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}}}]})
+                };
+                let result = test_forwarder(Duration::from_secs(5), Duration::from_secs(5))
+                    .forward_with_retry(
+                        &app_type,
+                        http::Method::POST,
+                        if codex { "/responses" } else { "/v1/messages" },
+                        body,
+                        HeaderMap::new(),
+                        Extensions::new(),
+                        vec![provider],
+                    )
+                    .await
+                    .map_err(|error| error.error)
+                    .unwrap();
+                assert_eq!(result.outbound_model.as_deref(), Some("gemini-4-argon"));
+                if codex {
+                    assert_eq!(
+                        result.codex_upstream_format,
+                        Some(CodexUpstreamFormat::Gemini)
+                    );
+                }
+                let (uri, headers, body) = seen.lock().await.pop().unwrap();
+                let action = if stream {
+                    "streamGenerateContent?alt=sse"
+                } else {
+                    "generateContent"
+                };
+                assert_eq!(uri, format!("/v1/projects/project/locations/global/publishers/google/models/gemini-4-argon:{action}"));
+                assert_eq!(headers[http::header::AUTHORIZATION], "Bearer google-token");
+                assert!(!headers.contains_key("x-goog-api-key"));
+                assert!(body.get("messages").is_none());
+                assert!(body.get("anthropic_version").is_none());
+                assert_eq!(body["contents"][0]["role"], "user");
+                assert_eq!(
+                    body["tools"][0]["functionDeclarations"][0]["name"],
+                    "read_file"
+                );
+                assert_eq!(
+                    body["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+                    "HIGH"
+                );
+            }
+        }
     }
 
     mod codex_stack {

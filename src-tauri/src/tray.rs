@@ -1105,10 +1105,15 @@ pub(crate) fn provider_needs_routing(app: &AppType, provider: &Provider) -> bool
                     .is_some_and(|mode| *mode == crate::provider::ClaudeDesktopMode::Proxy)
         }
         AppType::Claude => {
-            managed_oauth || full_url || api_format.is_some_and(|f| f != "anthropic")
+            managed_oauth
+                || full_url
+                || api_format.is_some_and(|f| f != "anthropic")
+                || crate::proxy::providers::vertex::is_gemini_provider(provider)
         }
         AppType::Codex | AppType::GrokBuild => {
             managed_oauth
+                || (matches!(app, AppType::Codex)
+                    && meta.and_then(|meta| meta.vertex_ai.as_ref()).is_some())
                 || full_url
                 || matches!(api_format, Some("openai_chat" | "anthropic"))
                 || provider
@@ -4236,6 +4241,16 @@ mod tests {
         );
         assert!(!provider_needs_routing(&AppType::Claude, &anthropic));
         assert!(provider_needs_routing(&AppType::Codex, &anthropic));
+        let vertex = provider(
+            serde_json::json!({"apiFormat": "openai_responses", "vertexAi": {"projectId": "project", "location": "global"}}),
+            serde_json::json!({}),
+        );
+        assert!(provider_needs_routing(&AppType::Codex, &vertex));
+        let vertex_gemini = provider(
+            serde_json::json!({"apiFormat": "anthropic", "vertexAi": {"projectId": "project", "location": "global", "publisher": "google"}}),
+            serde_json::json!({}),
+        );
+        assert!(provider_needs_routing(&AppType::Claude, &vertex_gemini));
         let full_url = provider(
             serde_json::json!({"isFullUrl": true}),
             serde_json::json!({}),

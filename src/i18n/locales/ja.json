@@ -5182,5 +5182,16 @@
       "managedHint": "アカウントは認証センターで管理します。ログアウトするとこのカードは自動で消えます。"
     },
     "deleteSessionHint": "履歴の整合性を保つため、DeepSeek Harness でこのセッションを削除してください。"
+  },
+  "vertexAi": {
+    "geminiLocationRequired": "Gemini 3.8 以降では global、us、eu のいずれかを選択してください。",
+    "geminiAuthHint": "Gemini 4 Argon / Gemini 3.8 Flash はローカルルーティングまたは集約で使用します。リージョンは global、us、eu を選択してください。gcloud auth application-default login で ADC を設定するか、Google OAuth アクセストークンを入力し、有効期限後に更新してください。",
+    "projectId": "Google Cloud プロジェクト ID",
+    "location": "Vertex AI リージョン",
+    "accessToken": "Google アクセストークン（任意）",
+    "accessTokenPlaceholder": "空欄の場合は gcloud ADC を使用",
+    "invalidConfig": "有効な Google Cloud プロジェクト ID とリージョンを入力してください（英数字、ハイフン、アンダースコア）。",
+    "codexAuthHint": "ローカルルーティングが必要です。Vertex AI Model Garden で Claude モデルを有効にし、gcloud auth application-default login を実行してください。CC Switch は gcloud でトークンを更新します。Google OAuth アクセストークンを入力することもできますが、有効期限後は手動更新が必要です。Vertex AI の Claude モデルは API キーをサポートしません。",
+    "claudeAuthHint": "Vertex AI Model Garden で Claude モデルを有効にし、gcloud auth application-default login を実行してください。直接接続では Claude Code のネイティブ認証を使用し、ローカルルーティングでは gcloud ADC を使用します。モデルが利用できるリージョンを選択してください。"
   }
 }

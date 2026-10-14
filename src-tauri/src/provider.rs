@@ -482,9 +482,21 @@ impl LocalProxyRequestOverrides {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VertexAiConfig {
+    pub project_id: String,
+    pub location: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
+}
+
 /// 供应商元数据
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderMeta {
+    /// Vertex AI Claude upstream for the local Codex Responses bridge.
+    #[serde(rename = "vertexAi", skip_serializing_if = "Option::is_none")]
+    pub vertex_ai: Option<VertexAiConfig>,
     /// 自定义端点列表（按 URL 去重存储）
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub custom_endpoints: HashMap<String, crate::settings::CustomEndpoint>,

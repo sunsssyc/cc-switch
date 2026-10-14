@@ -166,6 +166,7 @@ interface CodexFormFieldsProps {
   onXaiAccountSelect?: (accountId: string | null) => void;
   // API Key
   codexApiKey: string;
+  isVertexAi?: boolean;
   onApiKeyChange: (key: string) => void;
   category?: ProviderCategory;
   shouldShowApiKeyLink: boolean;
@@ -642,6 +643,7 @@ export function CodexFormFields({
   selectedXaiAccountId,
   onXaiAccountSelect,
   codexApiKey,
+  isVertexAi = false,
   onApiKeyChange,
   category,
   shouldShowApiKeyLink,
@@ -1364,17 +1366,19 @@ export function CodexFormFields({
 
   const renderCatalogActionButtons = (onAdd: () => void, addLabel: string) => (
     <div className="flex gap-1">
-      <FetchedModelPicker
-        models={fetchedModels}
-        configuredModelIds={catalogRows.map((row) => row.model)}
-        onApply={handleApplyFetchedCatalogRows}
-        onFetch={handleFetchModels}
-        isFetching={isFetchingModels}
-        metadataSource={{
-          baseUrl: codexBaseUrl,
-          presets: codexPresetModelSources,
-        }}
-      />
+      {!isVertexAi && (
+        <FetchedModelPicker
+          models={fetchedModels}
+          configuredModelIds={catalogRows.map((row) => row.model)}
+          onApply={handleApplyFetchedCatalogRows}
+          onFetch={handleFetchModels}
+          isFetching={isFetchingModels}
+          metadataSource={{
+            baseUrl: codexBaseUrl,
+            presets: codexPresetModelSources,
+          }}
+        />
+      )}
       <Button
         type="button"
         variant="outline"
@@ -1894,51 +1898,57 @@ export function CodexFormFields({
   const apiKeySection = (
     <>
       {/* Codex API Key 输入框（托管 OAuth 预设无需 Key） */}
-      {!isCopilotPreset && !isCodexOauthPreset && !isXaiOauthPreset && (
-        <ApiKeySection
-          id="codexApiKey"
-          label="API Key"
-          value={codexApiKey}
-          onChange={onApiKeyChange}
-          category={category}
-          required
-          shouldShowLink={shouldShowApiKeyLink}
-          websiteUrl={websiteUrl}
-          isPartner={isPartner}
-          partnerPromotionKey={partnerPromotionKey}
-          placeholder={{
-            official: t("providerForm.codexOfficialNoApiKey", {
-              defaultValue: "官方供应商无需 API Key",
-            }),
-            thirdParty: t("providerForm.codexApiKeyAutoFill", {
-              defaultValue: "输入 API Key，将自动填充到配置",
-            }),
-          }}
-        />
-      )}
+      {!isVertexAi &&
+        !isCopilotPreset &&
+        !isCodexOauthPreset &&
+        !isXaiOauthPreset && (
+          <ApiKeySection
+            id="codexApiKey"
+            label="API Key"
+            value={codexApiKey}
+            onChange={onApiKeyChange}
+            category={category}
+            required
+            shouldShowLink={shouldShowApiKeyLink}
+            websiteUrl={websiteUrl}
+            isPartner={isPartner}
+            partnerPromotionKey={partnerPromotionKey}
+            placeholder={{
+              official: t("providerForm.codexOfficialNoApiKey", {
+                defaultValue: "官方供应商无需 API Key",
+              }),
+              thirdParty: t("providerForm.codexApiKeyAutoFill", {
+                defaultValue: "输入 API Key，将自动填充到配置",
+              }),
+            }}
+          />
+        )}
     </>
   );
 
   const endpointSection = (
     <>
       {/* Codex Base URL 输入框（托管 OAuth 端点由 adapter 硬定向，不展示） */}
-      {shouldShowSpeedTest && !isCopilotPreset && !isXaiOauthPreset && (
-        <EndpointField
-          id="codexBaseUrl"
-          label={t("codexConfig.apiUrlLabel")}
-          value={codexBaseUrl}
-          onChange={onBaseUrlChange}
-          placeholder={t("providerForm.codexApiEndpointPlaceholder")}
-          help={t("providerForm.codexApiHint")}
-          onManageClick={() => onEndpointModalToggle(true)}
-        />
-      )}
+      {shouldShowSpeedTest &&
+        !isVertexAi &&
+        !isCopilotPreset &&
+        !isXaiOauthPreset && (
+          <EndpointField
+            id="codexBaseUrl"
+            label={t("codexConfig.apiUrlLabel")}
+            value={codexBaseUrl}
+            onChange={onBaseUrlChange}
+            placeholder={t("providerForm.codexApiEndpointPlaceholder")}
+            help={t("providerForm.codexApiHint")}
+            onManageClick={() => onEndpointModalToggle(true)}
+          />
+        )}
     </>
   );
 
   // 完整 URL 跟着地址框（托管 OAuth 端点由 adapter 硬定向，没有这个开关）。
   const showFullUrlToggle =
-    shouldShowSpeedTest && !isCopilotPreset && !isXaiOauthPreset;
+    shouldShowSpeedTest && !isVertexAi && !isCopilotPreset && !isXaiOauthPreset;
   const fullUrlToggle = (
     <FullUrlToggle
       checked={isFullUrl}
@@ -2086,7 +2096,8 @@ export function CodexFormFields({
     );
 
   if (variant === "stack") {
-    const showFormatFields = shouldShowSpeedTest && !isXaiOauthPreset;
+    const showFormatFields =
+      shouldShowSpeedTest && !isXaiOauthPreset && !isVertexAi;
     const showReasoning = isChatFormat && canEditReasoning;
     // Copilot 不显示 UA 和请求覆盖，Responses 格式下高级区就空了。
     const hasStackAdvancedContent =
@@ -2458,15 +2469,17 @@ export function CodexFormFields({
           <CollapsibleContent className="space-y-3 pt-3">
             {/* Copilot supports automatic capability routing or an explicit protocol;
                 other providers retain their existing format controls. */}
-            {(shouldShowSpeedTest || isCopilotPreset) && !isXaiOauthPreset && (
-              <div className="space-y-3">
-                {upstreamFormatSelect}
-                {isAnthropicFormat && anthropicAuthFieldSelect}
-                {isAnthropicFormat && impersonateClaudeCodeToggle}
-                {isAnthropicFormat && maxOutputTokensField}
-                {showFullUrlToggle && fullUrlToggle}
-              </div>
-            )}
+            {(shouldShowSpeedTest || isCopilotPreset) &&
+              !isXaiOauthPreset &&
+              !isVertexAi && (
+                <div className="space-y-3">
+                  {upstreamFormatSelect}
+                  {isAnthropicFormat && anthropicAuthFieldSelect}
+                  {isAnthropicFormat && impersonateClaudeCodeToggle}
+                  {isAnthropicFormat && maxOutputTokensField}
+                  {showFullUrlToggle && fullUrlToggle}
+                </div>
+              )}
 
             {isChatFormat && canEditReasoning && (
               <div

@@ -185,6 +185,9 @@ export function providerNeedsRouting(
 
   // 托管 OAuth：凭据由代理注入，与 apiFormat 无关，必须接管。
   if (isManagedOAuth) return true;
+  if (appId === "claude" && provider.meta?.vertexAi?.publisher === "google")
+    return true;
+  if (appId === "codex" && provider.meta?.vertexAi) return true;
 
   if (appId === "claude") {
     const fmt = provider.meta?.apiFormat;

@@ -5182,5 +5182,16 @@
       "managedHint": "账号在授权中心管理：退出登录后这张卡会自动消失。"
     },
     "deleteSessionHint": "请在 DeepSeek Harness 中删除此会话，以保持原生历史记录一致。"
+  },
+  "vertexAi": {
+    "geminiLocationRequired": "Gemini 3.8 及更高版本请选择 global、us 或 eu 区域。",
+    "geminiAuthHint": "通过本地路由或聚合使用 Gemini 4 Argon / Gemini 3.8 Flash。区域请选择 global、us 或 eu。运行 gcloud auth application-default login 配置 ADC，或填写 Google OAuth 访问令牌（过期后需更新）。",
+    "projectId": "Google Cloud 项目 ID",
+    "location": "Vertex AI 区域",
+    "accessToken": "Google 访问令牌（可选）",
+    "accessTokenPlaceholder": "留空时使用 gcloud ADC",
+    "invalidConfig": "请填写有效的 Google Cloud 项目 ID 和区域（仅限字母、数字、连字符和下划线）。",
+    "codexAuthHint": "需要开启本地路由。先在 Vertex AI Model Garden 启用 Claude 模型，再运行 gcloud auth application-default login；CC Switch 通过 gcloud 自动刷新访问令牌。也可以填写 Google OAuth 访问令牌，过期后需手动更新。Vertex AI 的 Claude 模型不支持 API Key。",
+    "claudeAuthHint": "先在 Vertex AI Model Garden 启用 Claude 模型，再运行 gcloud auth application-default login。直连模式使用 Claude Code 原生 Vertex AI 认证；本地路由使用 gcloud ADC。请选择模型支持的区域。"
   }
 }
