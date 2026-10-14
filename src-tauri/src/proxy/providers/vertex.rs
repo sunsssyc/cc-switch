@@ -8,7 +8,7 @@ use serde_json::Value;
 use tokio::sync::Mutex;
 
 use super::adapter::auth_header_value;
-use crate::provider::{Provider, VertexAiConfig};
+use crate::provider::{Provider, VertexAiConfig, VertexServiceAccount};
 use crate::proxy::error::ProxyError;
 
 pub fn is_vertex_provider(provider: &Provider) -> bool {
@@ -39,16 +39,30 @@ pub fn config(provider: &Provider) -> Option<VertexAiConfig> {
             .unwrap_or("us-east5")
             .into(),
         publisher: None,
+        service_account: None,
     })
 }
 
-pub fn is_gemini_provider(provider: &Provider) -> bool {
-    provider
+/// Legacy fixed-publisher rows keep their transport; unified rows resolve each model.
+pub fn is_gemini_request(provider: &Provider, model: Option<&str>) -> bool {
+    match provider
         .meta
         .as_ref()
         .and_then(|m| m.vertex_ai.as_ref())
         .and_then(|config| config.publisher.as_deref())
-        == Some("google")
+    {
+        Some("google") => true,
+        Some("auto") => model.is_some_and(|model| model.trim().starts_with("gemini-")),
+        _ => false,
+    }
+}
+
+pub fn is_gemini_provider(provider: &Provider) -> bool {
+    let codex_model = super::codex::codex_provider_upstream_model(provider);
+    is_gemini_request(
+        provider,
+        env_string(provider, "ANTHROPIC_MODEL").or(codex_model.as_deref()),
+    )
 }
 
 fn env_string<'a>(provider: &'a Provider, key: &str) -> Option<&'a str> {
@@ -278,32 +292,37 @@ fn gcloud_path() -> PathBuf {
 
 pub async fn auth_headers(
     explicit_token: Option<&str>,
+    service_account: Option<&VertexServiceAccount>,
 ) -> Result<Vec<(http::HeaderName, http::HeaderValue)>, ProxyError> {
-    let token = match explicit_token.map(str::trim).filter(|v| !v.is_empty()) {
-        Some(token) => token.to_string(),
-        None => {
-            let mut cached = ADC_TOKEN.lock().await;
-            if let Some((token, _)) = cached
-                .as_ref()
-                .filter(|(_, fetched)| fetched.elapsed() < Duration::from_secs(120))
-            {
-                token.clone()
-            } else {
-                let mut command = tokio::process::Command::new(gcloud_path());
-                command
-                    .args([
-                        "auth",
-                        "application-default",
-                        "print-access-token",
-                        "--quiet",
-                    ])
-                    .stdin(std::process::Stdio::null())
-                    .kill_on_drop(true);
-                #[cfg(windows)]
-                command.creation_flags(0x08000000);
-                let token = read_adc_token(&mut command).await?;
-                *cached = Some((token.clone(), Instant::now()));
-                token
+    let token = if let Some(credentials) = service_account {
+        super::vertex_auth::access_token(credentials).await?
+    } else {
+        match explicit_token.map(str::trim).filter(|v| !v.is_empty()) {
+            Some(token) => token.to_string(),
+            None => {
+                let mut cached = ADC_TOKEN.lock().await;
+                if let Some((token, _)) = cached
+                    .as_ref()
+                    .filter(|(_, fetched)| fetched.elapsed() < Duration::from_secs(120))
+                {
+                    token.clone()
+                } else {
+                    let mut command = tokio::process::Command::new(gcloud_path());
+                    command
+                        .args([
+                            "auth",
+                            "application-default",
+                            "print-access-token",
+                            "--quiet",
+                        ])
+                        .stdin(std::process::Stdio::null())
+                        .kill_on_drop(true);
+                    #[cfg(windows)]
+                    command.creation_flags(0x08000000);
+                    let token = read_adc_token(&mut command).await?;
+                    *cached = Some((token.clone(), Instant::now()));
+                    token
+                }
             }
         }
     };
@@ -356,6 +375,7 @@ mod tests {
                 project_id: "project".into(),
                 location: location.into(),
                 publisher: Some("google".into()),
+                service_account: None,
             };
             for stream in [false, true] {
                 let mut body = json!({"contents": [{"role": "user", "parts": [{"text": "hi"}]}],
@@ -391,6 +411,7 @@ mod tests {
             project_id: "project".into(),
             location: "us-east5".into(),
             publisher: Some("google".into()),
+            service_account: None,
         };
         assert!(prepare_gemini_request(
             &config,
@@ -408,6 +429,7 @@ mod tests {
             project_id: "my-project".into(),
             location: "global".into(),
             publisher: None,
+            service_account: None,
         };
         for (stream, action) in [(true, "streamRawPredict"), (false, "rawPredict")] {
             let mut body = json!({"model": "claude-sonnet-5", "stream": stream, "messages": []});
@@ -430,6 +452,7 @@ mod tests {
                 project_id: "my-project".into(),
                 location: region.into(),
                 publisher: None,
+                service_account: None,
             };
             let mut body = json!({"model": "claude-haiku-4-5@20251001"});
             let url =
@@ -452,6 +475,7 @@ mod tests {
                 project_id: project.into(),
                 location: location.into(),
                 publisher: None,
+                service_account: None,
             };
             assert!(prepare_request(
                 &cfg,
@@ -465,6 +489,7 @@ mod tests {
             project_id: "project".into(),
             location: "global".into(),
             publisher: None,
+            service_account: None,
         };
         assert!(prepare_request(
             &cfg,
@@ -477,11 +502,11 @@ mod tests {
 
     #[tokio::test]
     async fn explicit_token_uses_bearer_and_rejects_header_injection() {
-        let headers = auth_headers(Some("access-token")).await.unwrap();
+        let headers = auth_headers(Some("access-token"), None).await.unwrap();
         assert_eq!(headers.len(), 1);
         assert_eq!(headers[0].0, http::header::AUTHORIZATION);
         assert_eq!(headers[0].1, "Bearer access-token");
-        assert!(auth_headers(Some("token\r\nx-api-key: leak"))
+        assert!(auth_headers(Some("token\r\nx-api-key: leak"), None)
             .await
             .is_err());
     }

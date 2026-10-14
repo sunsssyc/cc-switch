@@ -5083,30 +5083,15 @@ base_url = "https://cc-api.pipellm.ai/v1"`,
     config: generateThirdPartyConfig(
       "Google Vertex AI",
       "https://aiplatform.googleapis.com",
-      "claude-sonnet-5",
-      { requiresOpenAiAuth: false },
-    ),
-    apiFormat: "anthropic",
-    vertexAi: { projectId: "", location: "global" },
-    modelCatalog: modelCatalog(["claude-sonnet-5", "claude-opus-5"]),
-    icon: "googlecloud",
-    iconColor: "#4285F4",
-  },
-  {
-    name: "Google Vertex AI (Gemini)",
-    websiteUrl: "https://cloud.google.com/vertex-ai",
-    category: "cloud_provider",
-    auth: {},
-    config: generateThirdPartyConfig(
-      "Google Vertex AI (Gemini)",
-      "https://aiplatform.googleapis.com",
       "gemini-4-argon",
       { requiresOpenAiAuth: false },
     ),
     // Reuse the Responses ⇄ Messages bridge before the Gemini native transport.
     apiFormat: "anthropic",
-    vertexAi: { projectId: "", location: "global", publisher: "google" },
+    vertexAi: { projectId: "", location: "global", publisher: "auto" },
     modelCatalog: modelCatalog([
+      { model: "claude-sonnet-5", displayName: "Claude Sonnet 5" },
+      { model: "claude-opus-5", displayName: "Claude Opus 5" },
       {
         model: "gemini-4-argon",
         displayName: "Gemini 4 Argon",

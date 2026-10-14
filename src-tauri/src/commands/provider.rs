@@ -1392,3 +1392,12 @@ mod native_query_credentials_tests {
         assert_eq!(api_key, "sk-provider");
     }
 }
+
+/// Validate the imported JSON and RSA key without making a network request.
+#[tauri::command]
+pub fn import_vertex_service_account(
+    json: String,
+) -> Result<crate::provider::VertexServiceAccount, String> {
+    crate::proxy::providers::vertex_auth::import_service_account(&json)
+        .map_err(|error| error.to_string())
+}

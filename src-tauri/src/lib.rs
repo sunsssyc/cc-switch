@@ -1573,6 +1573,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_providers,
+            commands::import_vertex_service_account,
             commands::get_current_provider,
             commands::add_provider,
             commands::update_provider,

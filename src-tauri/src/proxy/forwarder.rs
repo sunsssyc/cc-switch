@@ -1385,8 +1385,6 @@ impl RequestForwarder {
         let vertex_config = matches!(app_type, AppType::Claude | AppType::Codex)
             .then(|| super::providers::vertex::config(provider))
             .flatten();
-        let vertex_gemini = super::providers::vertex::is_gemini_provider(provider);
-        let vertex_stream = vertex_gemini && is_streaming_request(endpoint, body, headers);
         // 使用适配器提取 base_url
         let mut base_url = if vertex_config.is_some() {
             "https://aiplatform.googleapis.com".to_string()
@@ -1670,6 +1668,18 @@ impl RequestForwarder {
             codex_responses_to_chat = matches!(transport.protocol, CopilotProtocol::Chat);
             codex_responses_to_anthropic = false;
         }
+
+        // Select the Vertex publisher after resolving the actual upstream model,
+        // including catalog selections and provider-default substitutions.
+        if vertex_config.is_some() && codex_responses_to_anthropic && !self.keeps_resolved_model() {
+            super::providers::apply_codex_upstream_model(provider, &mut mapped_body);
+        }
+        let vertex_gemini = vertex_config.is_some()
+            && super::providers::vertex::is_gemini_request(
+                provider,
+                mapped_body.get("model").and_then(Value::as_str),
+            );
+        let vertex_stream = vertex_gemini && is_streaming_request(endpoint, body, headers);
 
         let codex_upstream_format = if matches!(app_type, AppType::Codex | AppType::GrokBuild)
             && super::providers::is_codex_responses_endpoint(endpoint)
@@ -2178,6 +2188,9 @@ impl RequestForwarder {
             let auth = adapter.extract_auth(provider);
             let headers = super::providers::vertex::auth_headers(
                 auth.as_ref().map(|auth| auth.api_key.as_str()),
+                vertex_config
+                    .as_ref()
+                    .and_then(|config| config.service_account.as_ref()),
             )
             .await?;
             for (_, value) in &headers {
@@ -3255,6 +3268,17 @@ impl RequestForwarder {
         body: &Value,
         is_copilot: bool,
     ) -> String {
+        if super::providers::vertex::is_vertex_provider(provider) {
+            return if super::providers::vertex::is_gemini_request(
+                provider,
+                body.get("model").and_then(Value::as_str),
+            ) {
+                "gemini_native"
+            } else {
+                "anthropic"
+            }
+            .to_string();
+        }
         if !is_copilot {
             return super::providers::get_claude_api_format(provider).to_string();
         }
@@ -7166,6 +7190,7 @@ mod tests {
                             project_id: "test-project".into(),
                             location: "global".into(),
                             publisher: None,
+                            service_account: None,
                         }),
                         ..Default::default()
                     });
@@ -7231,6 +7256,105 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn vertex_auto_switches_protocol_for_each_resolved_model() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let seen = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let app = {
+            let seen = seen.clone();
+            axum::Router::new().fallback(move |uri: http::Uri, body: Bytes| {
+                let seen = seen.clone();
+                async move {
+                    seen.lock().await.push((
+                        uri.to_string(),
+                        serde_json::from_slice::<Value>(&body).unwrap(),
+                    ));
+                    (
+                        StatusCode::OK,
+                        [(http::header::CONTENT_TYPE, "application/json")],
+                        "{}",
+                    )
+                }
+            })
+        };
+        let base = serve_upstream(app).await;
+        for (app_type, stack) in [
+            (AppType::Claude, true),
+            (AppType::Codex, true),
+            (AppType::Codex, false),
+        ] {
+            let codex = matches!(app_type, AppType::Codex);
+            let mut provider = test_provider_with_type(None);
+            provider.meta = Some(crate::provider::ProviderMeta {
+                api_format: Some("anthropic".into()),
+                vertex_ai: Some(crate::provider::VertexAiConfig {
+                    project_id: "project".into(),
+                    location: "global".into(),
+                    publisher: Some("auto".into()),
+                    service_account: None,
+                }),
+                ..Default::default()
+            });
+            provider.settings_config = if codex {
+                json!({"auth": {"OPENAI_API_KEY": "google-token"}, "env": {"ANTHROPIC_VERTEX_BASE_URL": base},
+                    "config": "model_provider = \"custom\"\nmodel = \"gemini-4-argon\"\n[model_providers.custom]\nbase_url = \"https://aiplatform.googleapis.com\"\nwire_api = \"responses\"\nrequires_openai_auth = false",
+                    "modelCatalog": {"models": [{"model": "gemini-4-argon"}, {"model": "claude-sonnet-5"}]}})
+            } else {
+                json!({"env": {"ANTHROPIC_AUTH_TOKEN": "google-token", "ANTHROPIC_VERTEX_BASE_URL": base, "ANTHROPIC_MODEL": "gemini-4-argon"}})
+            };
+            for stream in [false, true] {
+                for request_model in ["gemini-4-argon", "claude-sonnet-5", "gemini-4-argon"] {
+                    let body = if codex {
+                        json!({"model": request_model, "stream": stream, "input": [{"role": "user", "content": "hi"}]})
+                    } else {
+                        json!({"model": request_model, "stream": stream, "max_tokens": 128, "messages": [{"role": "user", "content": "hi"}]})
+                    };
+                    let result = test_forwarder(Duration::from_secs(5), Duration::from_secs(5))
+                        .stack_request(stack)
+                        .forward_with_retry(
+                            &app_type,
+                            http::Method::POST,
+                            if codex { "/responses" } else { "/v1/messages" },
+                            body,
+                            HeaderMap::new(),
+                            Extensions::new(),
+                            vec![provider.clone()],
+                        )
+                        .await
+                        .map_err(|error| error.error)
+                        .unwrap();
+                    let gemini = request_model.starts_with("gemini-");
+                    if codex {
+                        assert_eq!(
+                            result.codex_upstream_format,
+                            Some(if gemini {
+                                CodexUpstreamFormat::Gemini
+                            } else {
+                                CodexUpstreamFormat::Anthropic
+                            })
+                        );
+                    } else {
+                        assert_eq!(
+                            result.claude_api_format.as_deref(),
+                            Some(if gemini { "gemini_native" } else { "anthropic" })
+                        );
+                    }
+                    let (uri, body) = seen.lock().await.pop().unwrap();
+                    let publisher = if gemini { "google" } else { "anthropic" };
+                    let action = match (gemini, stream) {
+                        (true, true) => "streamGenerateContent?alt=sse",
+                        (true, false) => "generateContent",
+                        (false, true) => "streamRawPredict",
+                        (false, false) => "rawPredict",
+                    };
+                    assert_eq!(uri, format!("/v1/projects/project/locations/global/publishers/{publisher}/models/{request_model}:{action}"));
+                    assert_eq!(body.get("contents").is_some(), gemini);
+                    assert_eq!(body.get("messages").is_some(), !gemini);
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn vertex_gemini_4_forwards_both_clients_as_generate_content() {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let seen = Arc::new(tokio::sync::Mutex::new(Vec::new()));
@@ -7255,6 +7379,7 @@ mod tests {
                         project_id: "project".into(),
                         location: "global".into(),
                         publisher: Some("google".into()),
+                        service_account: None,
                     }),
                     ..Default::default()
                 });

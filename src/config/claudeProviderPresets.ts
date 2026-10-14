@@ -3206,27 +3206,8 @@ export const providerPresets: ProviderPreset[] = [
     name: "Google Vertex AI",
     websiteUrl: "https://cloud.google.com/vertex-ai",
     category: "cloud_provider",
-    settingsConfig: {
-      env: {
-        CLAUDE_CODE_USE_VERTEX: "1",
-        ANTHROPIC_VERTEX_PROJECT_ID: "",
-        CLOUD_ML_REGION: "global",
-        ANTHROPIC_MODEL: "claude-sonnet-5",
-        ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-5",
-        ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-5",
-        ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4-5@20251001",
-        VERTEX_REGION_CLAUDE_HAIKU_4_5: "us-east5",
-      },
-    },
-    icon: "googlecloud",
-    iconColor: "#4285F4",
-  },
-  {
-    name: "Google Vertex AI (Gemini)",
-    websiteUrl: "https://cloud.google.com/vertex-ai",
-    category: "cloud_provider",
     apiFormat: "gemini_native",
-    vertexAi: { projectId: "", location: "global", publisher: "google" },
+    vertexAi: { projectId: "", location: "global", publisher: "auto" },
     settingsConfig: {
       env: {
         ANTHROPIC_BASE_URL: "https://aiplatform.googleapis.com",
@@ -3238,6 +3219,8 @@ export const providerPresets: ProviderPreset[] = [
       },
     },
     stackModels: [
+      { model: "claude-sonnet-5", displayName: "Claude Sonnet 5" },
+      { model: "claude-opus-5", displayName: "Claude Opus 5" },
       { model: "gemini-4-argon", displayName: "Gemini 4 Argon", oneM: true },
       {
         model: "gemini-3.8-flash",

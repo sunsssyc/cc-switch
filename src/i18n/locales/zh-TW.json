@@ -373,6 +373,7 @@
     "proxyReasonCopilot": "使用 GitHub Copilot 作為 Claude 供應商",
     "proxyReasonOpenAIChat": "使用 OpenAI Chat API 格式",
     "proxyReasonOpenAIResponses": "使用 OpenAI Responses API 格式",
+    "proxyReasonVertexAi": "需要本機路由處理 Vertex AI 認證，並適配所選 Claude / Gemini 模型",
     "proxyReasonAnthropicMessages": "使用 Anthropic Messages API 格式",
     "proxyReasonFullUrl": "開啟了完整 URL 連線模式",
     "proxyReasonDesktopMapping": "使用模型對應（Claude Desktop 只認 Claude 模型名稱）",
@@ -5185,7 +5186,15 @@
     "deleteSessionHint": "請在 DeepSeek Harness 中刪除此工作階段，以保持原生歷史記錄一致。"
   },
   "vertexAi": {
+    "serviceAccountHint": "已使用服務帳號認證，無需安裝 gcloud。金鑰保存在 CC Switch 本機供應商設定中，存取權杖由程式自動取得和更新。請授予該帳號目標專案的模型呼叫權限。",
+    "invalidServiceAccount": "請選擇有效的 Google 服務帳號 JSON 金鑰檔案，包含 RSA 私鑰、帳號信箱和 Google 權杖位址（檔案不超過 1 MB）。",
+    "importing": "正在匯入…",
+    "removeServiceAccount": "移除金鑰",
+    "replaceServiceAccount": "更換 JSON 金鑰",
+    "importServiceAccount": "匯入 JSON 金鑰",
+    "serviceAccount": "服務帳號 JSON 金鑰",
     "geminiLocationRequired": "Gemini 3.8 及更新版本請選擇 global、us 或 eu 區域。",
+    "authHint": "透過路由或聚合使用 Claude 和 Gemini，依所選模型自動適配。區域請選 global、us 或 eu。可直接匯入服務帳號 JSON 金鑰，無需安裝 gcloud；也可使用 gcloud ADC 或填寫 Google OAuth 存取權杖。",
     "geminiAuthHint": "透過本機路由或聚合使用 Gemini 4 Argon / Gemini 3.8 Flash。區域請選 global、us 或 eu。執行 gcloud auth application-default login 設定 ADC，或填寫 Google OAuth 存取權杖（過期後需更新）。",
     "projectId": "Google Cloud 專案 ID",
     "location": "Vertex AI 區域",

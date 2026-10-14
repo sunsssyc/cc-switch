@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   Provider,
   ProviderMeta,
+  VertexServiceAccount,
   UniversalProvider,
   UniversalProvidersMap,
 } from "@/types";
@@ -79,6 +80,11 @@ export interface ClaudeDesktopDefaultRoute {
 }
 
 export const providersApi = {
+  async importVertexServiceAccount(
+    json: string,
+  ): Promise<VertexServiceAccount> {
+    return invoke("import_vertex_service_account", { json });
+  },
   async getAll(appId: AppId): Promise<Record<string, Provider>> {
     return await invoke("get_providers", { app: appId });
   },

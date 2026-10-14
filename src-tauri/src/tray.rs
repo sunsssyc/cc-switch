@@ -1108,7 +1108,7 @@ pub(crate) fn provider_needs_routing(app: &AppType, provider: &Provider) -> bool
             managed_oauth
                 || full_url
                 || api_format.is_some_and(|f| f != "anthropic")
-                || crate::proxy::providers::vertex::is_gemini_provider(provider)
+                || meta.and_then(|meta| meta.vertex_ai.as_ref()).is_some()
         }
         AppType::Codex | AppType::GrokBuild => {
             managed_oauth

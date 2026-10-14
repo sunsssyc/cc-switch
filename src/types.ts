@@ -173,14 +173,24 @@ export interface LocalProxyRequestOverrides {
 }
 
 // 供应商元数据（字段名与后端一致，保持 snake_case）
+export interface VertexServiceAccount {
+  type: "service_account";
+  project_id: string;
+  private_key_id: string;
+  private_key: string;
+  client_email: string;
+  token_uri: string;
+}
+
 export interface VertexAiConfig {
   projectId: string;
   location: string;
-  publisher?: "anthropic" | "google";
+  publisher?: "anthropic" | "google" | "auto";
+  serviceAccount?: VertexServiceAccount;
 }
 
 export interface ProviderMeta {
-  // Vertex AI Claude upstream; Codex requires the local Responses bridge.
+  // Vertex AI upstream; auto selects the protocol from the resolved model.
   vertexAi?: VertexAiConfig;
   // 自定义端点：以 URL 为键，值为端点信息
   custom_endpoints?: Record<string, CustomEndpoint>;

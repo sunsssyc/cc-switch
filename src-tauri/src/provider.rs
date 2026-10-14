@@ -489,6 +489,29 @@ pub struct VertexAiConfig {
     pub location: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub publisher: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_account: Option<VertexServiceAccount>,
+}
+
+/// Imported Google credentials remain in local provider metadata, never client settings.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct VertexServiceAccount {
+    #[serde(rename = "type")]
+    pub account_type: String,
+    pub project_id: String,
+    pub private_key_id: String,
+    pub private_key: String,
+    pub client_email: String,
+    pub token_uri: String,
+}
+
+impl std::fmt::Debug for VertexServiceAccount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VertexServiceAccount")
+            .field("client_email", &self.client_email)
+            .field("private_key", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
 }
 
 /// 供应商元数据

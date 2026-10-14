@@ -1701,7 +1701,8 @@ function ProviderFormFull({
     }
 
     if (
-      vertexAi?.publisher === "google" &&
+      vertexAi &&
+      ["google", "auto"].includes(vertexAi.publisher ?? "") &&
       !["global", "us", "eu"].includes(vertexAi.location.trim())
     ) {
       toast.error(t("vertexAi.geminiLocationRequired"));
@@ -2778,7 +2779,20 @@ function ProviderFormFull({
             <VertexAiFields
               {...vertexAi}
               onChange={handleVertexAiChange}
-              isGemini={vertexAi.publisher === "google"}
+              onServiceAccountChange={(serviceAccount) => {
+                setLocalVertexAi({
+                  ...vertexAi,
+                  serviceAccount,
+                  projectId: vertexAi.projectId.trim()
+                    ? vertexAi.projectId
+                    : (serviceAccount?.project_id ?? vertexAi.projectId),
+                });
+                if (serviceAccount) {
+                  if (appId === "codex") handleCodexApiKeyChange("");
+                  else handleApiKeyChange("");
+                }
+              }}
+              isGemini={["google", "auto"].includes(vertexAi.publisher ?? "")}
               accessToken={
                 appId === "codex"
                   ? codexApiKey

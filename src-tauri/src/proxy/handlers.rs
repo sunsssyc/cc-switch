@@ -1168,6 +1168,7 @@ async fn handle_responses_for_app(
             is_stream,
             connection_guard,
             codex_tool_context,
+            codex_upstream_format == Some(CodexUpstreamFormat::Gemini),
         )
         .await;
     }
@@ -1500,6 +1501,7 @@ async fn handle_responses_compact_for_app(
             is_stream,
             connection_guard,
             codex_tool_context,
+            codex_upstream_format == Some(CodexUpstreamFormat::Gemini),
         )
         .await;
     }
@@ -1990,9 +1992,9 @@ async fn handle_codex_anthropic_to_responses_transform(
     is_stream: bool,
     connection_guard: Option<ActiveConnectionGuard>,
     codex_tool_context: transform_codex_chat::CodexToolContext,
+    vertex_gemini: bool,
 ) -> Result<axum::response::Response, ProxyError> {
     let status = response.status();
-    let vertex_gemini = super::providers::vertex::is_gemini_provider(&ctx.provider);
     let tool_schema_hints = vertex_gemini.then(|| {
         let tools: Vec<Value> = codex_tool_context.chat_tools().iter().filter_map(|tool| {
             let function = tool.get("function")?;
@@ -4634,7 +4636,8 @@ mod stack_tests {
                 vertex_ai: Some(crate::provider::VertexAiConfig {
                     project_id: "project".into(),
                     location: "global".into(),
-                    publisher: Some("google".into()),
+                    publisher: Some("auto".into()),
+                    service_account: None,
                 }),
                 ..Default::default()
             });
@@ -4681,6 +4684,7 @@ mod stack_tests {
                 stream,
                 None,
                 transform_codex_chat::build_codex_tool_context_from_request(&request),
+                true,
             )
             .await
             .unwrap();

@@ -2,10 +2,11 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { ProviderForm } from "@/components/providers/forms/ProviderForm";
-import { providerPresets } from "@/config/claudeProviderPresets";
 import { codexProviderPresets } from "@/config/codexProviderPresets";
 import { createTestQueryClient } from "../utils/testQueryClient";
 import { toast } from "@/lib/toast";
+import { providersApi } from "@/lib/api/providers";
+import type { VertexServiceAccount } from "@/types";
 
 vi.mock("@/lib/toast", () => ({
   toast: { error: vi.fn(), warning: vi.fn(), info: vi.fn(), success: vi.fn() },
@@ -32,9 +33,12 @@ vi.mock("@/components/providers/forms/hooks", async (importOriginal) => {
   };
 });
 
-function renderVertex(appId: "claude" | "codex", projectId = "my-project") {
+function renderVertex(
+  appId: "claude" | "codex",
+  projectId = "my-project",
+  serviceAccount?: VertexServiceAccount,
+) {
   const onSubmit = vi.fn();
-  const claude = providerPresets.find((p) => p.name === "Google Vertex AI")!;
   const codex = codexProviderPresets.find(
     (p) => p.name === "Google Vertex AI",
   )!;
@@ -42,7 +46,9 @@ function renderVertex(appId: "claude" | "codex", projectId = "my-project") {
     appId === "claude"
       ? {
           env: {
-            ...(claude.settingsConfig as { env: Record<string, string> }).env,
+            CLAUDE_CODE_USE_VERTEX: "1",
+            CLOUD_ML_REGION: "global",
+            ANTHROPIC_MODEL: "claude-sonnet-5",
             ANTHROPIC_VERTEX_PROJECT_ID: projectId,
           },
         }
@@ -59,8 +65,17 @@ function renderVertex(appId: "claude" | "codex", projectId = "my-project") {
           name: "Google Vertex AI",
           category: "cloud_provider",
           settingsConfig,
-          meta:
-            appId === "codex"
+          meta: serviceAccount
+            ? {
+                apiFormat: "anthropic",
+                vertexAi: {
+                  projectId,
+                  location: "global",
+                  publisher: "auto",
+                  serviceAccount,
+                },
+              }
+            : appId === "codex"
               ? {
                   apiFormat: "anthropic",
                   vertexAi: { projectId, location: "global" },
@@ -93,7 +108,7 @@ describe("Vertex AI provider editing", () => {
         .find(
           (button) =>
             button.querySelector("span.truncate")?.textContent ===
-            "Google Vertex AI (Gemini)",
+            "Google Vertex AI",
         );
       fireEvent.click(preset!);
       fireEvent.change(screen.getByLabelText("vertexAi.projectId"), {
@@ -121,7 +136,7 @@ describe("Vertex AI provider editing", () => {
       expect(payload.meta.vertexAi).toEqual({
         projectId: "gemini-project",
         location: "global",
-        publisher: "google",
+        publisher: "auto",
       });
       const settings = JSON.parse(payload.settingsConfig);
       if (appId === "claude") {
@@ -131,13 +146,23 @@ describe("Vertex AI provider editing", () => {
         expect(settings.env).not.toHaveProperty("CLAUDE_CODE_USE_VERTEX");
         expect(
           payload.meta.stackModels.map((m: { model: string }) => m.model),
-        ).toEqual(["gemini-4-argon", "gemini-3.8-flash"]);
+        ).toEqual([
+          "claude-sonnet-5",
+          "claude-opus-5",
+          "gemini-4-argon",
+          "gemini-3.8-flash",
+        ]);
       } else {
         expect(settings.config).toContain('model = "gemini-4-argon"');
         expect(settings.auth.OPENAI_API_KEY).toBe("google-token");
         expect(
           settings.modelCatalog.models.map((m: { model: string }) => m.model),
-        ).toEqual(["gemini-4-argon", "gemini-3.8-flash"]);
+        ).toEqual([
+          "claude-sonnet-5",
+          "claude-opus-5",
+          "gemini-4-argon",
+          "gemini-3.8-flash",
+        ]);
       }
     },
   );
@@ -226,6 +251,15 @@ describe("Vertex AI provider editing", () => {
             "Google Vertex AI",
         );
       expect(preset).toBeDefined();
+      expect(
+        screen
+          .getAllByRole("button")
+          .filter((button) =>
+            button
+              .querySelector("span.truncate")
+              ?.textContent?.startsWith("Google Vertex AI"),
+          ),
+      ).toHaveLength(1);
       fireEvent.click(preset!);
       fireEvent.change(screen.getByLabelText("vertexAi.projectId"), {
         target: { value: "new-project" },
@@ -237,13 +271,153 @@ describe("Vertex AI provider editing", () => {
         expect(payload.meta.vertexAi).toEqual({
           projectId: "new-project",
           location: "global",
+          publisher: "auto",
         });
         expect(payload.meta.apiFormat).toBe("anthropic");
       } else {
-        expect(
-          JSON.parse(payload.settingsConfig).env.ANTHROPIC_VERTEX_PROJECT_ID,
-        ).toBe("new-project");
+        expect(payload.meta.vertexAi.projectId).toBe("new-project");
       }
+    },
+  );
+});
+
+const serviceAccount: VertexServiceAccount = {
+  type: "service_account",
+  project_id: "key-project",
+  private_key_id: "test-id",
+  private_key: "fixture-private-key",
+  client_email: "test@key-project.iam.gserviceaccount.com",
+  token_uri: "https://oauth2.googleapis.com/token",
+};
+
+function renderNewVertex(appId: "claude" | "codex") {
+  const submit = vi.fn();
+  render(
+    <QueryClientProvider client={createTestQueryClient()}>
+      <ProviderForm
+        appId={appId}
+        submitLabel="save-key"
+        onSubmit={submit}
+        onCancel={vi.fn()}
+      />
+    </QueryClientProvider>,
+  );
+  const preset = screen
+    .getAllByRole("button")
+    .find(
+      (button) =>
+        button.querySelector("span.truncate")?.textContent ===
+        "Google Vertex AI",
+    );
+  fireEvent.click(preset!);
+  return submit;
+}
+
+function uploadKey() {
+  fireEvent.change(screen.getByLabelText("vertexAi.serviceAccount"), {
+    target: {
+      files: [
+        new File([JSON.stringify(serviceAccount)], "key.json", {
+          type: "application/json",
+        }),
+      ],
+    },
+  });
+}
+
+describe("Vertex service account JSON import", () => {
+  it.each(["claude", "codex"] as const)(
+    "imports credentials and saves %s without a token or gcloud",
+    async (appId) => {
+      vi.spyOn(providersApi, "importVertexServiceAccount").mockResolvedValue(
+        serviceAccount,
+      );
+      const submit = renderNewVertex(appId);
+      fireEvent.change(screen.getByLabelText("vertexAi.accessToken"), {
+        target: { value: "old-static-token" },
+      });
+      uploadKey();
+      await screen.findByText(serviceAccount.client_email);
+      expect(providersApi.importVertexServiceAccount).toHaveBeenCalledWith(
+        JSON.stringify(serviceAccount),
+      );
+      expect(screen.getByLabelText("vertexAi.projectId")).toHaveValue(
+        "key-project",
+      );
+      expect(
+        screen.queryByLabelText("vertexAi.accessToken"),
+      ).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "save-key" }));
+      await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+      const payload = submit.mock.calls[0][0];
+      expect(payload.meta.vertexAi.serviceAccount).toEqual(serviceAccount);
+      expect(payload.settingsConfig).not.toContain(serviceAccount.private_key);
+      expect(payload.settingsConfig).not.toContain("old-static-token");
+    },
+  );
+
+  it("keeps a selected target project, replaces credentials and can remove them", async () => {
+    const importer = vi
+      .spyOn(providersApi, "importVertexServiceAccount")
+      .mockResolvedValue(serviceAccount);
+    const submit = renderNewVertex("codex");
+    fireEvent.change(screen.getByLabelText("vertexAi.projectId"), {
+      target: { value: "other-project" },
+    });
+    uploadKey();
+    await screen.findByText(serviceAccount.client_email);
+    expect(screen.getByLabelText("vertexAi.projectId")).toHaveValue(
+      "other-project",
+    );
+    const replacement = {
+      ...serviceAccount,
+      client_email: "new@key-project.iam.gserviceaccount.com",
+      private_key_id: "new-key",
+    };
+    importer.mockResolvedValue(replacement);
+    uploadKey();
+    await screen.findByText(replacement.client_email);
+    fireEvent.click(
+      screen.getByRole("button", { name: "vertexAi.removeServiceAccount" }),
+    );
+    expect(
+      screen.queryByText(replacement.client_email),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("vertexAi.accessToken")).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "save-key" }));
+    await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    expect(
+      submit.mock.calls[0][0].meta.vertexAi.serviceAccount,
+    ).toBeUndefined();
+  });
+
+  it("rejects invalid JSON without discarding the previous key", async () => {
+    const importer = vi
+      .spyOn(providersApi, "importVertexServiceAccount")
+      .mockResolvedValue(serviceAccount);
+    renderNewVertex("claude");
+    uploadKey();
+    await screen.findByText(serviceAccount.client_email);
+    importer.mockRejectedValue(new Error("Invalid credentials"));
+    uploadKey();
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        "vertexAi.invalidServiceAccount",
+      ),
+    );
+    expect(screen.getByText(serviceAccount.client_email)).toBeInTheDocument();
+  });
+
+  it.each(["claude", "codex"] as const)(
+    "preserves an imported key when editing %s",
+    async (appId) => {
+      const submit = renderVertex(appId, "my-project", serviceAccount);
+      expect(screen.getByText(serviceAccount.client_email)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "save-vertex" }));
+      await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+      expect(submit.mock.calls[0][0].meta.vertexAi.serviceAccount).toEqual(
+        serviceAccount,
+      );
     },
   );
 });

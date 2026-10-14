@@ -56,6 +56,14 @@ export function getRoutingReason(
       proxyRequiredReason = t("notifications.proxyReasonManagedOAuth", {
         defaultValue: "使用托管 OAuth 登录（令牌由本地路由注入）",
       });
+    } else if (
+      provider.meta?.vertexAi &&
+      (app === "claude" || app === "codex")
+    ) {
+      proxyRequiredReason = t("notifications.proxyReasonVertexAi", {
+        defaultValue:
+          "需要本地路由处理 Vertex AI 认证，并适配所选 Claude / Gemini 模型",
+      });
     } else if (provider.meta?.apiFormat === "openai_chat" && app === "claude") {
       proxyRequiredReason = t("notifications.proxyReasonOpenAIChat", {
         defaultValue: "使用 OpenAI Chat 接口格式",

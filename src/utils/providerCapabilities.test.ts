@@ -421,23 +421,26 @@ describe("providerNeedsRouting", () => {
         ),
       ).toBe(true);
     });
-    it("Claude Vertex Gemini requires routing even with stale Anthropic metadata", () => {
-      expect(
-        providerNeedsRouting(
-          "claude",
-          mkProvider({
-            meta: {
-              apiFormat: "anthropic",
-              vertexAi: {
-                projectId: "project",
-                location: "global",
-                publisher: "google",
+    it.each(["google", "auto", "anthropic"] as const)(
+      "Claude Vertex %s requires routing even with stale Anthropic metadata",
+      (publisher) => {
+        expect(
+          providerNeedsRouting(
+            "claude",
+            mkProvider({
+              meta: {
+                apiFormat: "anthropic",
+                vertexAi: {
+                  projectId: "project",
+                  location: "global",
+                  publisher,
+                },
               },
-            },
-          }),
-        ),
-      ).toBe(true);
-    });
+            }),
+          ),
+        ).toBe(true);
+      },
+    );
   });
 
   describe("Claude Desktop 路由判定", () => {

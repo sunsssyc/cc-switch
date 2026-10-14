@@ -373,6 +373,7 @@
     "proxyReasonCopilot": "GitHub Copilot を Claude プロバイダーとして使用しており",
     "proxyReasonOpenAIChat": "OpenAI Chat API フォーマットを使用しており",
     "proxyReasonOpenAIResponses": "OpenAI Responses API フォーマットを使用しており",
+    "proxyReasonVertexAi": "Vertex AI 認証と選択した Claude / Gemini モデルへの対応にローカルルーティングが必要であり",
     "proxyReasonAnthropicMessages": "Anthropic Messages API フォーマットを使用しており",
     "proxyReasonFullUrl": "完全 URL 接続モードが有効になっており",
     "proxyReasonDesktopMapping": "モデルマッピングを使っており（Claude Desktop は Claude のモデル名しか受け付けません）",
@@ -5184,7 +5185,15 @@
     "deleteSessionHint": "履歴の整合性を保つため、DeepSeek Harness でこのセッションを削除してください。"
   },
   "vertexAi": {
+    "serviceAccountHint": "サービスアカウント認証では gcloud は不要です。キーは CC Switch のローカルプロバイダー設定に保存され、アクセストークンは自動取得・更新されます。対象プロジェクトのモデル呼び出し権限をアカウントに付与してください。",
+    "invalidServiceAccount": "RSA 秘密鍵、アカウントのメールアドレス、Google トークンエンドポイントを含む有効なサービスアカウント JSON キーを選択してください（1 MB 以下）。",
+    "importing": "インポート中…",
+    "removeServiceAccount": "キーを削除",
+    "replaceServiceAccount": "JSON キーを変更",
+    "importServiceAccount": "JSON キーをインポート",
+    "serviceAccount": "サービスアカウント JSON キー",
     "geminiLocationRequired": "Gemini 3.8 以降では global、us、eu のいずれかを選択してください。",
+    "authHint": "ルーティングまたは集約で Claude と Gemini を使用し、選択したモデルに自動対応します。リージョンは global、us、eu を選択してください。サービスアカウント JSON キーをインポートすれば gcloud は不要です。gcloud ADC または Google OAuth アクセストークンも使用できます。",
     "geminiAuthHint": "Gemini 4 Argon / Gemini 3.8 Flash はローカルルーティングまたは集約で使用します。リージョンは global、us、eu を選択してください。gcloud auth application-default login で ADC を設定するか、Google OAuth アクセストークンを入力し、有効期限後に更新してください。",
     "projectId": "Google Cloud プロジェクト ID",
     "location": "Vertex AI リージョン",
