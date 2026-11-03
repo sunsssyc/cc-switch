@@ -641,13 +641,36 @@ fn convert_messages_to_contents(
             continue;
         }
 
+        // Opaque signature envelopes carry replay metadata, not a model turn.
+        // In particular, a trailing envelope after a denied tool result must
+        // not resurrect a cached tool call through positional shadow matching.
+        if role == "assistant"
+            && message
+                .get("content")
+                .and_then(Value::as_array)
+                .is_some_and(|blocks| {
+                    blocks.iter().all(|block| {
+                        matches!(
+                            block.get("type").and_then(Value::as_str),
+                            Some("thinking" | "redacted_thinking")
+                        )
+                    })
+                })
+        {
+            assistant_seen_index += 1;
+            continue;
+        }
+
         let gemini_role = if role == "assistant" { "model" } else { "user" };
 
         let parts = if role == "assistant" {
             let positional_shadow_index = assistant_seen_index
                 .checked_sub(shadow_start_index)
                 .filter(|index| *index < effective_shadow_turns.len())
-                .filter(|index| !used_shadow_indices.contains(index));
+                .filter(|index| !used_shadow_indices.contains(index))
+                // Commentary must never acquire a tool call from an unrelated
+                // cached turn just because their positions happen to line up.
+                .filter(|index| effective_shadow_turns[*index].tool_calls.is_empty());
             let tool_use_match_index = find_matching_shadow_turn_for_assistant_message(
                 message.get("content"),
                 effective_shadow_turns,
@@ -714,12 +737,27 @@ fn convert_messages_to_contents(
             continue;
         }
 
+        if parts.is_empty() {
+            continue;
+        }
         contents.push(json!({
             "role": gemini_role,
             "parts": parts
         }));
     }
 
+    // Responses permits resuming after assistant commentary (including after
+    // approval denial). Gemini does not accept assistant prefills. Preserve the
+    // commentary and the actual denial result, then request continuation without
+    // inventing tool success or authorizing a denied action.
+    if contents
+        .last()
+        .is_some_and(|content| content["role"] == "model")
+    {
+        contents.push(json!({"role":"user", "parts":[{"text":
+            "Continue from the preceding conversation. Respect all tool execution and approval results; a denied action remains denied."
+        }]}));
+    }
     Ok(contents)
 }
 
@@ -815,6 +853,82 @@ fn split_function_response_parts(parts: &[Value]) -> Option<(Vec<Value>, Vec<Val
             .cloned()
             .partition(|part| is_function_response(part)),
     )
+}
+
+#[test]
+fn codex_denial_continuations_preserve_results_and_do_not_replay_tools() {
+    use super::transform_codex_anthropic::{
+        anthropic_response_to_responses, responses_reasoning_item_from_anthropic_block,
+        responses_request_to_anthropic,
+    };
+    for with_cache in [false, true] {
+        let store = GeminiShadowStore::with_limits(1, 4);
+        let mut history = vec![json!({"role":"user","content":"Run permitted tools only"})];
+        for n in 0..24 {
+            let raw = json!({"candidates":[{"content":{"parts":[{"functionCall":{"id":format!("c{n}"),"name":"exec_command","args":{"cmd":"pwd"}},"thoughtSignature":format!("s{n}")}]},"finishReason":"STOP"}]});
+            let message =
+                gemini_to_anthropic_with_shadow(raw, Some(&store), Some("p"), Some("s")).unwrap();
+            let response = anthropic_response_to_responses(message).unwrap();
+            history.extend(response["output"].as_array().unwrap().clone());
+            let output = if n % 2 == 0 {
+                "Command rejected by automatic approval review. Not executed."
+            } else {
+                "exit code 0"
+            };
+            history.push(
+                json!({"type":"function_call_output","call_id":format!("c{n}"),"output":output}),
+            );
+            let mut variants = vec![history.clone()];
+            let mut commentary = history.clone();
+            commentary.push(json!({"role":"assistant","content":[{"type":"output_text","text":"I will respect the result and continue with permitted work."}]}));
+            variants.push(commentary);
+            let mut metadata = history.clone();
+            let state = super::gemini_shadow::history_block(
+                "p",
+                &[GeminiToolCallMeta::new(
+                    Some(format!("c{n}")),
+                    "exec_command",
+                    json!({"cmd":"pwd"}),
+                    Some(format!("s{n}")),
+                )],
+            )
+            .unwrap();
+            metadata.push(responses_reasoning_item_from_anthropic_block("state", &state).unwrap());
+            variants.push(metadata);
+            if !with_cache {
+                store.clear_session("p", "s");
+            }
+            for input in variants {
+                let request = responses_request_to_anthropic(
+                    json!({"model":"gemini-4-argon","input":input}),
+                    1024,
+                )
+                .unwrap();
+                let result =
+                    anthropic_to_gemini_with_shadow(request, Some(&store), Some("p"), Some("s"))
+                        .unwrap();
+                let contents = result["contents"].as_array().unwrap();
+                assert_eq!(contents.last().unwrap()["role"], "user");
+                let parts: Vec<_> = contents
+                    .iter()
+                    .flat_map(|c| c["parts"].as_array().unwrap())
+                    .collect();
+                assert_eq!(
+                    parts
+                        .iter()
+                        .filter(|p| p.get("functionCall").is_some())
+                        .count(),
+                    n + 1
+                );
+                let results: Vec<_> = parts
+                    .iter()
+                    .filter(|p| p.get("functionResponse").is_some())
+                    .collect();
+                assert_eq!(results.len(), n + 1);
+                assert!(results.last().unwrap().to_string().contains(output));
+            }
+        }
+    }
 }
 
 #[test]
