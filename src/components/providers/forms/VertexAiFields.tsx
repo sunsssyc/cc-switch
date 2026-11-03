@@ -18,6 +18,8 @@ export function VertexAiFields({
   publisher,
   serviceAccount,
   onServiceAccountChange,
+  credentialsPath,
+  onCredentialsPathChange,
 }: {
   projectId: string;
   location: string;
@@ -28,6 +30,8 @@ export function VertexAiFields({
   publisher?: string;
   serviceAccount?: VertexServiceAccount;
   onServiceAccountChange?: (credentials?: VertexServiceAccount) => void;
+  credentialsPath?: string;
+  onCredentialsPathChange?: (value: string) => void;
 }) {
   const { t } = useTranslation();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -85,6 +89,19 @@ export function VertexAiFields({
           onValueChange={(value) => onChange("location", value)}
         />
       </div>
+      {onCredentialsPathChange && (
+        <div className="space-y-1">
+          <Label htmlFor="vertex-credentials-path">
+            {t("vertexAi.credentialsPath")}
+          </Label>
+          <ImeSafeInput
+            id="vertex-credentials-path"
+            value={credentialsPath ?? ""}
+            placeholder={t("vertexAi.credentialsPathPlaceholder")}
+            onValueChange={onCredentialsPathChange}
+          />
+        </div>
+      )}
       {onServiceAccountChange && (
         <div className="space-y-2">
           <Label htmlFor="vertex-service-account">
@@ -149,13 +166,15 @@ export function VertexAiFields({
         {t(
           serviceAccount
             ? "vertexAi.serviceAccountHint"
-            : publisher === "auto"
-              ? "vertexAi.authHint"
-              : isGemini
-                ? "vertexAi.geminiAuthHint"
-                : onAccessTokenChange
-                  ? "vertexAi.codexAuthHint"
-                  : "vertexAi.claudeAuthHint",
+            : onCredentialsPathChange
+              ? "vertexAi.geminiCliAuthHint"
+              : publisher === "auto"
+                ? "vertexAi.authHint"
+                : isGemini
+                  ? "vertexAi.geminiAuthHint"
+                  : onAccessTokenChange
+                    ? "vertexAi.codexAuthHint"
+                    : "vertexAi.claudeAuthHint",
         )}
       </p>
     </div>

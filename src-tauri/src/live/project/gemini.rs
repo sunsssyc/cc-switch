@@ -19,6 +19,8 @@ use crate::live::patch::KeyPath;
 pub const SELECTED_TYPE_OAUTH: &str = "oauth-personal";
 /// API Key（第三方和代理）。
 pub const SELECTED_TYPE_API_KEY: &str = "gemini-api-key";
+/// Vertex AI 直连（ADC / `GOOGLE_APPLICATION_CREDENTIALS`）。
+pub const SELECTED_TYPE_VERTEX: &str = "vertex-ai";
 
 /// 代理契约里指向本地代理的两个变量。
 pub const BASE_URL_ENV: &str = "GOOGLE_GEMINI_BASE_URL";
@@ -52,13 +54,21 @@ impl GeminiProjection {
                     .collect()
             })
             .unwrap_or_default();
+        // Gemini CLI 的 Vertex 模式是一个独立的认证类型；只看 API Key 选择器会让 Vertex
+        // 行退回 gemini-api-key。该标志是供应商自己的关键字段，优先于官方卡的 OAuth。
+        let vertex = settings
+            .pointer("/env/GOOGLE_GENAI_USE_VERTEXAI")
+            .and_then(Value::as_str)
+            .is_some_and(|value| value.eq_ignore_ascii_case("true") || value.trim() == "1");
         let model_name = settings
             .pointer("/config/model/name")
             .filter(|value| !value.is_null())
             .cloned();
         Self {
             env,
-            selected_type: Some(if official {
+            selected_type: Some(if vertex {
+                SELECTED_TYPE_VERTEX
+            } else if official {
                 SELECTED_TYPE_OAUTH
             } else {
                 SELECTED_TYPE_API_KEY
@@ -200,6 +210,16 @@ mod tests {
             apply_env(&vertex, pre),
             "# mine\nGEMINI_SANDBOX=docker\nDEBUG=1\nGOOGLE_GENAI_USE_VERTEXAI=true\nGOOGLE_CLOUD_PROJECT=p\n"
         );
+        assert_eq!(vertex.selected_type, Some(SELECTED_TYPE_VERTEX));
+    }
+
+    #[test]
+    fn vertex_selector_wins_over_the_official_category() {
+        let projection = GeminiProjection::of(
+            &json!({"env": {"GOOGLE_GENAI_USE_VERTEXAI": "1", "GOOGLE_CLOUD_PROJECT": "p"}}),
+            true,
+        );
+        assert_eq!(projection.selected_type, Some(SELECTED_TYPE_VERTEX));
     }
 
     #[test]

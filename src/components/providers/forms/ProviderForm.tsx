@@ -1006,10 +1006,18 @@ function ProviderFormFull({
         }))
         .filter((entry) => !(entry.preset as CodexProviderPreset).hidden);
     } else if (usesGeminiStyleForm(appId)) {
-      return geminiProviderPresets.map<PresetEntry>((preset, index) => ({
-        id: `gemini-${index}`,
-        preset,
-      }));
+      return (
+        geminiProviderPresets
+          .map<PresetEntry>((preset, index) => ({
+            id: `gemini-${index}`,
+            preset,
+          }))
+          // agy 只认 GEMINI_API_KEY 和 GOOGLE_GEMINI_BASE_URL，没有 Vertex 认证方式。
+          .filter(
+            (entry) =>
+              appId !== "agy" || entry.preset.name !== "Google Vertex AI",
+          )
+      );
     } else if (appId === "opencode") {
       return opencodeProviderPresets.map<PresetEntry>((preset, index) => ({
         id: `opencode-${index}`,
@@ -1116,6 +1124,7 @@ function ProviderFormFull({
     handleGeminiConfigChange,
     resetGeminiConfig,
     envStringToObj,
+    envObjToString,
   } = useGeminiConfigState({
     initialData: usesGeminiStyleForm(appId) ? initialData : undefined,
     preferConfigModel: appId === "agy",
@@ -1148,10 +1157,7 @@ function ProviderFormFull({
   }, [appId, initialData, selectedPresetId]);
 
   const updateGeminiEnvField = useCallback(
-    (
-      key: "GEMINI_API_KEY" | "GOOGLE_GEMINI_BASE_URL" | "GEMINI_MODEL",
-      value: string,
-    ) => {
+    (key: string, value: string) => {
       try {
         const config = JSON.parse(form.getValues("settingsConfig") || "{}") as {
           env?: Record<string, unknown>;
@@ -1191,6 +1197,40 @@ function ProviderFormFull({
       updateGeminiEnvField("GEMINI_MODEL", model.trim());
     },
     [originalHandleGeminiModelChange, updateGeminiEnvField],
+  );
+
+  // Gemini CLI 的 Vertex AI 直连：项目、区域和凭据路径都写在 .env 里。
+  const geminiVertexAiEnv = useMemo(
+    () => envStringToObj(geminiEnv),
+    [geminiEnv, envStringToObj],
+  );
+  const geminiVertexAiConfig = useMemo<VertexAiConfig | undefined>(() => {
+    if (appId !== "gemini") return undefined;
+    const selector = String(
+      geminiVertexAiEnv.GOOGLE_GENAI_USE_VERTEXAI ?? "",
+    ).toLowerCase();
+    if (selector !== "true" && selector !== "1") return undefined;
+    return {
+      projectId: geminiVertexAiEnv.GOOGLE_CLOUD_PROJECT ?? "",
+      location: geminiVertexAiEnv.GOOGLE_CLOUD_LOCATION || "global",
+      publisher: "google",
+    };
+  }, [appId, geminiVertexAiEnv]);
+  const geminiVertexAi = Boolean(geminiVertexAiConfig);
+  const handleGeminiVertexEnvChange = useCallback(
+    (key: string, value: string) => {
+      const env = envStringToObj(geminiEnv);
+      env[key] = value;
+      handleGeminiEnvChange(envObjToString(env));
+      updateGeminiEnvField(key, value);
+    },
+    [
+      geminiEnv,
+      envStringToObj,
+      envObjToString,
+      handleGeminiEnvChange,
+      updateGeminiEnvField,
+    ],
   );
 
   // ── Extracted hooks: OpenCode / OMO / OpenClaw ─────────────────────
@@ -1691,19 +1731,21 @@ function ProviderFormFull({
       }
     }
 
+    const effectiveVertexAi =
+      appId === "gemini" ? geminiVertexAiConfig : vertexAi;
     if (
-      vertexAi &&
-      (!/^[A-Za-z0-9_-]+$/.test(vertexAi.projectId.trim()) ||
-        !/^[A-Za-z0-9_-]+$/.test(vertexAi.location.trim()))
+      effectiveVertexAi &&
+      (!/^[A-Za-z0-9_-]+$/.test(effectiveVertexAi.projectId.trim()) ||
+        !/^[A-Za-z0-9_-]+$/.test(effectiveVertexAi.location.trim()))
     ) {
       toast.error(t("vertexAi.invalidConfig"));
       return;
     }
 
     if (
-      vertexAi &&
-      ["google", "auto"].includes(vertexAi.publisher ?? "") &&
-      !["global", "us", "eu"].includes(vertexAi.location.trim())
+      effectiveVertexAi &&
+      ["google", "auto"].includes(effectiveVertexAi.publisher ?? "") &&
+      !["global", "us", "eu"].includes(effectiveVertexAi.location.trim())
     ) {
       toast.error(t("vertexAi.geminiLocationRequired"));
       return;
@@ -1770,7 +1812,7 @@ function ProviderFormFull({
           );
         }
       }
-      if (usesGeminiStyleForm(appId)) {
+      if (usesGeminiStyleForm(appId) && !geminiVertexAi) {
         // agy 只填 Key 不填地址是合法用法（走 Google 默认 API）；不填 Key 的登录模式就是官方卡，
         // 不该再存一张非官方的。
         if (appId !== "agy" && !geminiBaseUrl.trim()) {
@@ -2056,7 +2098,7 @@ function ProviderFormFull({
 
     const nextMeta: ProviderMeta = {
       ...(baseMeta ?? {}),
-      vertexAi: localVertexAi,
+      vertexAi: appId === "gemini" ? geminiVertexAiConfig : localVertexAi,
       opencodeConfigFormat: isNativeOpencode ? "v2" : undefined,
       // Claude Code、Codex、Gemini CLI 的通用配置片段已冻结：沿用行里原有的标记，新增时
       // 由后端写 true（兼容旧版）。
@@ -2775,7 +2817,7 @@ function ProviderFormFull({
             }
           />
 
-          {vertexAi && (
+          {vertexAi && appId !== "gemini" && (
             <VertexAiFields
               {...vertexAi}
               onChange={handleVertexAiChange}
@@ -3007,10 +3049,10 @@ function ProviderFormFull({
             <GeminiFormFields
               appId={appId as "gemini" | "agy"}
               providerId={providerId}
-              shouldShowApiKey={shouldShowApiKey(
-                form.getValues("settingsConfig"),
-                isEditMode,
-              )}
+              shouldShowApiKey={
+                !geminiVertexAi &&
+                shouldShowApiKey(form.getValues("settingsConfig"), isEditMode)
+              }
               apiKey={geminiApiKey}
               onApiKeyChange={handleGeminiApiKeyChange}
               category={category}
@@ -3029,6 +3071,24 @@ function ProviderFormFull({
               shouldShowModelField={true}
               model={geminiModel}
               onModelChange={handleGeminiModelChange}
+              isVertexAi={geminiVertexAi}
+              vertexProjectId={geminiVertexAiEnv.GOOGLE_CLOUD_PROJECT ?? ""}
+              vertexLocation={geminiVertexAiEnv.GOOGLE_CLOUD_LOCATION ?? ""}
+              onVertexProjectIdChange={(value) =>
+                handleGeminiVertexEnvChange("GOOGLE_CLOUD_PROJECT", value)
+              }
+              onVertexLocationChange={(value) =>
+                handleGeminiVertexEnvChange("GOOGLE_CLOUD_LOCATION", value)
+              }
+              vertexCredentialsPath={
+                geminiVertexAiEnv.GOOGLE_APPLICATION_CREDENTIALS ?? ""
+              }
+              onVertexCredentialsPathChange={(value) =>
+                handleGeminiVertexEnvChange(
+                  "GOOGLE_APPLICATION_CREDENTIALS",
+                  value,
+                )
+              }
               speedTestEndpoints={speedTestEndpoints}
             />
           )}

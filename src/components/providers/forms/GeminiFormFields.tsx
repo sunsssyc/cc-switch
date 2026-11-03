@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { HelpTip } from "@/components/ui/help-tip";
 import { toast } from "@/lib/toast";
 import EndpointSpeedTest from "./EndpointSpeedTest";
+import { VertexAiFields } from "./VertexAiFields";
 import { ApiKeySection, EndpointField, ModelInputWithFetch } from "./shared";
 import {
   fetchModelsForConfig,
@@ -47,6 +48,15 @@ interface GeminiFormFieldsProps {
   model: string;
   onModelChange: (value: string) => void;
 
+  // Vertex AI 直连（Gemini CLI 原生 ADC / 服务账号）
+  isVertexAi?: boolean;
+  vertexProjectId?: string;
+  vertexLocation?: string;
+  onVertexProjectIdChange?: (value: string) => void;
+  onVertexLocationChange?: (value: string) => void;
+  vertexCredentialsPath?: string;
+  onVertexCredentialsPathChange?: (value: string) => void;
+
   // Speed Test Endpoints
   speedTestEndpoints: EndpointCandidate[];
 }
@@ -73,6 +83,13 @@ export function GeminiFormFields({
   shouldShowModelField,
   model,
   onModelChange,
+  isVertexAi = false,
+  vertexProjectId,
+  vertexLocation,
+  onVertexProjectIdChange,
+  onVertexLocationChange,
+  vertexCredentialsPath,
+  onVertexCredentialsPathChange,
   speedTestEndpoints,
 }: GeminiFormFieldsProps) {
   const { t } = useTranslation();
@@ -142,7 +159,7 @@ export function GeminiFormFields({
       )}
 
       {/* API Key 输入框 */}
-      {shouldShowApiKey && !isGoogleOfficial && (
+      {shouldShowApiKey && !isGoogleOfficial && !isVertexAi && (
         <ApiKeySection
           value={apiKey}
           onChange={onApiKeyChange}
@@ -155,8 +172,26 @@ export function GeminiFormFields({
         />
       )}
 
+      {/* Vertex AI 直连：项目、区域与可选的凭据文件路径 */}
+      {isVertexAi && (
+        <div className="rounded-lg border border-border-strong bg-subtle p-4">
+          <VertexAiFields
+            projectId={vertexProjectId ?? ""}
+            location={vertexLocation ?? ""}
+            onChange={(field, value) => {
+              if (field === "projectId") onVertexProjectIdChange?.(value);
+              else onVertexLocationChange?.(value);
+            }}
+            isGemini
+            publisher="google"
+            credentialsPath={vertexCredentialsPath}
+            onCredentialsPathChange={onVertexCredentialsPathChange}
+          />
+        </div>
+      )}
+
       {/* Base URL 输入框（统一使用与 Codex 相同的样式与交互） */}
-      {shouldShowSpeedTest && (
+      {shouldShowSpeedTest && !isVertexAi && (
         <EndpointField
           id="baseUrl"
           required={appId !== "agy"}
@@ -191,21 +226,23 @@ export function GeminiFormFields({
                 </HelpTip>
               )}
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleFetchModels}
-              disabled={isFetchingModels}
-              className="h-7 gap-1"
-            >
-              {isFetchingModels ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Download className="h-3.5 w-3.5" />
-              )}
-              {t("providerForm.fetchModels")}
-            </Button>
+            {!isVertexAi && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleFetchModels}
+                disabled={isFetchingModels}
+                className="h-7 gap-1"
+              >
+                {isFetchingModels ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="h-3.5 w-3.5" />
+                )}
+                {t("providerForm.fetchModels")}
+              </Button>
+            )}
           </div>
           <ModelInputWithFetch
             id="gemini-model"
@@ -223,7 +260,7 @@ export function GeminiFormFields({
       )}
 
       {/* 端点测速弹窗 */}
-      {shouldShowSpeedTest && isEndpointModalOpen && (
+      {shouldShowSpeedTest && !isVertexAi && isEndpointModalOpen && (
         <EndpointSpeedTest
           appId={appId}
           providerId={providerId}

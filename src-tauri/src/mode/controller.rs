@@ -5071,7 +5071,7 @@ model_provider = "c"
             gemini_settings(),
             json!({
                 "model": { "compressionThreshold": 0.5 },
-                "security": { "auth": { "selectedType": "gemini-api-key" } },
+                "security": { "auth": { "selectedType": "vertex-ai" } },
                 "mcpServers": { "fs": { "command": "fs" } }
             })
         );

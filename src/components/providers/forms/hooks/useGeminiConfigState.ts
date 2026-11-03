@@ -28,6 +28,10 @@ export function useGeminiConfigState({
   const envObjToString = useCallback(
     (envObj: Record<string, unknown>): string => {
       const priorityKeys = [
+        "GOOGLE_GENAI_USE_VERTEXAI",
+        "GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_CLOUD_LOCATION",
+        "GOOGLE_APPLICATION_CREDENTIALS",
         "GOOGLE_GEMINI_BASE_URL",
         "GEMINI_API_KEY",
         "GEMINI_MODEL",

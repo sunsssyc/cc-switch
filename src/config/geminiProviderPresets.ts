@@ -1,4 +1,4 @@
-import type { ProviderCategory } from "@/types";
+import type { ProviderCategory, VertexAiConfig } from "@/types";
 import type { PresetFamilyFields } from "./presetFamilies";
 
 /**
@@ -27,6 +27,8 @@ export interface GeminiProviderPreset extends PresetFamilyFields {
   primePartner?: boolean; // 旧版的置顶合作伙伴标记；v7 起界面不再读取，新预设不写
   partnerPromotionKey?: string;
   endpointCandidates?: string[];
+  // Vertex AI 直连（Gemini CLI 原生支持 ADC / GOOGLE_APPLICATION_CREDENTIALS）。
+  vertexAi?: VertexAiConfig;
   theme?: GeminiPresetTheme;
   // 图标配置
   icon?: string; // 图标名称
@@ -50,6 +52,28 @@ export const geminiProviderPresets: GeminiProviderPreset[] = [
       textColor: "#FFFFFF",
     },
     icon: "gemini",
+    iconColor: "#4285F4",
+  },
+  {
+    name: "Google Vertex AI",
+    websiteUrl: "https://cloud.google.com/vertex-ai",
+    settingsConfig: {
+      env: {
+        GOOGLE_GENAI_USE_VERTEXAI: "true",
+        GOOGLE_CLOUD_PROJECT: "",
+        GOOGLE_CLOUD_LOCATION: "global",
+        GEMINI_MODEL: "gemini-3.8-flash",
+      },
+    },
+    model: "gemini-3.8-flash",
+    description: "Google Cloud Vertex AI 直连（ADC / 服务账号）",
+    category: "cloud_provider",
+    vertexAi: {
+      projectId: "",
+      location: "global",
+      publisher: "google",
+    },
+    icon: "googlecloud",
     iconColor: "#4285F4",
   },
   // ===== 赞助商预设：文件顺序与 README 赞助商表对齐（仅维护约定；应用内一律按显示名排序，不置顶）=====
