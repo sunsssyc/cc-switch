@@ -231,13 +231,11 @@ pub async fn fetch_vertex_models(
     if !valid_segment(project) || !valid_segment(location) {
         return Err("Vertex AI requires a valid project ID and location".to_string());
     }
-    let host = match location {
-        "global" => "aiplatform.googleapis.com".to_string(),
-        "us" | "eu" => format!("aiplatform.{location}.rep.googleapis.com"),
-        _ => format!("{location}-aiplatform.googleapis.com"),
-    };
+    // Publisher models are a global Model Garden catalogue: the parent is
+    // `publishers/{publisher}`, not `projects/{project}/locations/{location}`.
+    // The project is only used as the quota project below.
     let url = format!(
-        "https://{host}/v1/projects/{project}/locations/{location}/publishers/{publisher}/models?pageSize=1000"
+        "https://aiplatform.googleapis.com/v1beta1/publishers/{publisher}/models?pageSize=1000"
     );
     let headers = crate::proxy::providers::vertex::auth_headers(
         access_token
@@ -252,6 +250,14 @@ pub async fn fetch_vertex_models(
     for (name, value) in headers {
         header_map.insert(name, value);
     }
+    // ADC tokens often carry no quota project; the service-account token uses
+    // its own project. Set it explicitly so the catalogue request is billed to
+    // the project the user configured.
+    header_map.insert(
+        "x-goog-user-project",
+        reqwest::header::HeaderValue::from_str(project)
+            .map_err(|_| "Invalid Google Cloud project ID".to_string())?,
+    );
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
         .build()
