@@ -235,7 +235,7 @@ pub async fn fetch_vertex_models(
     // `publishers/{publisher}`, not `projects/{project}/locations/{location}`.
     // The project is only used as the quota project below.
     let url = format!(
-        "https://aiplatform.googleapis.com/v1beta1/publishers/{publisher}/models?pageSize=1000"
+        "https://aiplatform.googleapis.com/v1beta1/publishers/{publisher}/models?pageSize=300"
     );
     let headers = crate::proxy::providers::vertex::auth_headers(
         access_token
