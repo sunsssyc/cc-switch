@@ -897,5 +897,21 @@ describe("Claude Desktop Vertex preset", () => {
       location: "global",
       publisher: "anthropic",
     });
+
+    const gemini = claudeDesktopProviderPresets.find(
+      (item) => item.name === "Google Vertex AI (Gemini)",
+    );
+    expect(gemini).toBeDefined();
+    expect(gemini?.category).toBe("cloud_provider");
+    expect(gemini?.mode).toBe("proxy");
+    expect(gemini?.apiFormat).toBe("gemini_native");
+    expect(gemini?.vertexAi).toEqual({
+      projectId: "",
+      location: "global",
+      publisher: "google",
+    });
+    expect(
+      gemini?.modelRoutes?.map((route) => route.upstreamModel),
+    ).toContain("gemini-4-argon");
   });
 });

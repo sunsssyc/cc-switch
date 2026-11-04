@@ -2598,4 +2598,45 @@ export const claudeDesktopProviderPresets: ClaudeDesktopProviderPreset[] = [
     icon: "googlecloud",
     iconColor: "#4285F4",
   },
+  {
+    name: "Google Vertex AI (Gemini)",
+    websiteUrl: "https://cloud.google.com/vertex-ai",
+    category: "cloud_provider",
+    baseUrl: "https://aiplatform.googleapis.com",
+    mode: "proxy",
+    apiFormat: "gemini_native",
+    modelRoutes: [
+      {
+        routeId: CLAUDE_DESKTOP_ROLE_ROUTE_IDS.sonnet,
+        upstreamModel: "gemini-4-argon",
+        labelOverride: "Gemini 4 Argon",
+        supports1m: true,
+      },
+      {
+        routeId: CLAUDE_DESKTOP_ROLE_ROUTE_IDS.opus,
+        upstreamModel: "gemini-4-argon",
+        labelOverride: "Gemini 4 Argon",
+        supports1m: true,
+      },
+      {
+        routeId: CLAUDE_DESKTOP_ROLE_ROUTE_IDS.fable,
+        upstreamModel: "gemini-4-argon",
+        labelOverride: "Gemini 4 Argon",
+        supports1m: true,
+      },
+      {
+        routeId: CLAUDE_DESKTOP_ROLE_ROUTE_IDS.haiku,
+        upstreamModel: "gemini-3.8-flash",
+        labelOverride: "Gemini 3.8 Flash",
+        supports1m: true,
+      },
+    ],
+    vertexAi: {
+      projectId: "",
+      location: "global",
+      publisher: "google",
+    },
+    icon: "googlecloud",
+    iconColor: "#4285F4",
+  },
 ];

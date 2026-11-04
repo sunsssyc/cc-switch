@@ -7239,6 +7239,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn vertex_gemini_forwards_claude_desktop_messages() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let seen = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let app = {
+            let seen = seen.clone();
+            axum::Router::new().fallback(move |uri: http::Uri, headers: HeaderMap, body: Bytes| {
+                let seen = seen.clone();
+                async move {
+                    seen.lock().await.push((
+                        uri.path().to_string(),
+                        headers,
+                        serde_json::from_slice::<Value>(&body).unwrap(),
+                    ));
+                    (
+                        StatusCode::OK,
+                        [(http::header::CONTENT_TYPE, "application/json")],
+                        json!({"modelVersion": "gemini-4-argon", "candidates": [{"content": {"parts": [{"text": "ok"}]}, "finishReason": "STOP"}]}).to_string(),
+                    )
+                }
+            })
+        };
+        let base = serve_upstream(app).await;
+        let mut provider = test_provider_with_type(None);
+        provider.category = Some("cloud_provider".into());
+        provider.settings_config = json!({"env": {
+            "ANTHROPIC_VERTEX_BASE_URL": base,
+            "ANTHROPIC_AUTH_TOKEN": "google-token",
+            "ANTHROPIC_MODEL": "gemini-4-argon"
+        }});
+        provider.meta = Some(crate::provider::ProviderMeta {
+            vertex_ai: Some(crate::provider::VertexAiConfig {
+                project_id: "project".into(),
+                location: "global".into(),
+                publisher: Some("google".into()),
+                service_account: None,
+            }),
+            claude_desktop_mode: Some(crate::provider::ClaudeDesktopMode::Proxy),
+            api_format: Some("gemini_native".into()),
+            claude_desktop_model_routes: HashMap::from([(
+                "claude-sonnet-5".to_string(),
+                crate::provider::ClaudeDesktopModelRoute {
+                    model: "gemini-4-argon".to_string(),
+                    label_override: Some("Gemini 4 Argon".to_string()),
+                    supports_1m: Some(true),
+                },
+            )]),
+            ..Default::default()
+        });
+        let body = json!({
+            "model": "claude-sonnet-5",
+            "max_tokens": 1024,
+            "messages": [{"role": "user", "content": "hi"}],
+        });
+
+        let result = test_forwarder(Duration::from_secs(5), Duration::from_secs(5))
+            .forward_with_retry(
+                &AppType::ClaudeDesktop,
+                http::Method::POST,
+                "/v1/messages",
+                body,
+                HeaderMap::new(),
+                Extensions::new(),
+                vec![provider],
+            )
+            .await
+            .map_err(|error| error.error)
+            .unwrap();
+        assert_eq!(result.outbound_model.as_deref(), Some("gemini-4-argon"));
+
+        let (uri, headers, body) = seen.lock().await.pop().unwrap();
+        assert_eq!(
+            uri,
+            "/v1/projects/project/locations/global/publishers/google/models/gemini-4-argon:generateContent"
+        );
+        assert_eq!(headers[http::header::AUTHORIZATION], "Bearer google-token");
+        assert!(body.get("contents").is_some());
+        assert!(body.get("messages").is_none());
+    }
+
+    #[tokio::test]
     async fn vertex_ai_forwards_claude_and_codex_with_google_auth_and_model_routing() {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let seen = Arc::new(tokio::sync::Mutex::new(Vec::new()));
