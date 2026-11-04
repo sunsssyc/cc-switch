@@ -1470,6 +1470,7 @@ export function ClaudeDesktopProviderForm({
                           <div className="flex gap-1">
                             <Input
                               value={route.model}
+                              list={`claude-desktop-models-${index}`}
                               onChange={(event) =>
                                 updateRoute(index, {
                                   model: event.target.value,
@@ -1479,15 +1480,28 @@ export function ClaudeDesktopProviderForm({
                               className="flex-1"
                             />
                             {fetchedModels.length > 0 && (
-                              <ModelDropdown
-                                models={fetchedModels}
-                                onSelect={(id) =>
-                                  updateRoute(index, {
-                                    model: id,
-                                    labelOverride: route.labelOverride || id,
-                                  })
-                                }
-                              />
+                              <>
+                                <datalist
+                                  id={`claude-desktop-models-${index}`}
+                                >
+                                  {fetchedModels.map((model) => (
+                                    <option
+                                      key={model.id}
+                                      value={model.id}
+                                      label={model.ownedBy ?? undefined}
+                                    />
+                                  ))}
+                                </datalist>
+                                <ModelDropdown
+                                  models={fetchedModels}
+                                  onSelect={(id) =>
+                                    updateRoute(index, {
+                                      model: id,
+                                      labelOverride: route.labelOverride || id,
+                                    })
+                                  }
+                                />
+                              </>
                             )}
                           </div>
                           <label className="flex h-9 items-center gap-2 text-sm text-fg-2">

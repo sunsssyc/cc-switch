@@ -944,6 +944,19 @@ describe("Claude Desktop Vertex service account import", () => {
       ),
     );
 
+    Element.prototype.scrollIntoView = vi.fn();
+    const dropdownButtons = screen.getAllByRole("button", {
+      name: "Select model",
+    });
+    expect(dropdownButtons.length).toBeGreaterThan(0);
+    fireEvent.click(dropdownButtons[0]);
+    const option = screen.getByRole("option", { name: "claude-sonnet-5" });
+    await waitFor(() => expect(option).toBeVisible());
+    fireEvent.click(option);
+    await waitFor(() =>
+      expect(screen.queryByRole("option", { name: "claude-sonnet-5" })).toBeNull(),
+    );
+
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     const payload = onSubmit.mock.calls[0][0];
