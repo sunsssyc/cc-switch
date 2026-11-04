@@ -222,6 +222,36 @@ function normalizeProxyRows(rows: RouteRow[]): RouteRow[] {
   });
 }
 
+function vertexFamilyRows(family: "claude" | "gemini"): RouteRow[] {
+  const models: Record<RouteRole, string> =
+    family === "gemini"
+      ? {
+          sonnet: "gemini-4-argon",
+          opus: "gemini-4-argon",
+          fable: "gemini-4-argon",
+          haiku: "gemini-3.8-flash",
+        }
+      : {
+          sonnet: "claude-sonnet-5",
+          opus: "claude-opus-5",
+          fable: "claude-fable-5",
+          haiku: "claude-haiku-4-5",
+        };
+  return ROLE_ORDER.map((role) =>
+    createRouteRow({
+      route: ROLE_ROUTE_IDS[role],
+      model: models[role],
+      labelOverride:
+        family === "gemini"
+          ? role === "haiku"
+            ? "Gemini 3.8 Flash"
+            : "Gemini 4 Argon"
+          : "",
+      supports1m: family === "gemini" || role !== "haiku",
+    }),
+  );
+}
+
 function isClaudeSafeRoute(route: string) {
   const normalized = route.trim().toLowerCase();
   if (normalized.includes(LEGACY_ONE_M_MARKER)) return false;
@@ -350,7 +380,12 @@ export function ClaudeDesktopProviderForm({
   const { data: storedVertexAi } = useQuery({
     queryKey: ["storedVertexServiceAccount"],
     queryFn: async () => {
-      for (const app of ["codex", "claude", "gemini", "claude-desktop"] as const) {
+      for (const app of [
+        "codex",
+        "claude",
+        "gemini",
+        "claude-desktop",
+      ] as const) {
         try {
           const providers = await providersApi.getAll(app);
           for (const provider of Object.values(providers)) {
@@ -368,7 +403,11 @@ export function ClaudeDesktopProviderForm({
   });
 
   useEffect(() => {
-    if (!storedVertexAi?.serviceAccount || !localVertexAi || localVertexAi.serviceAccount) {
+    if (
+      !storedVertexAi?.serviceAccount ||
+      !localVertexAi ||
+      localVertexAi.serviceAccount
+    ) {
       return;
     }
     setLocalVertexAi((previous) =>
@@ -381,7 +420,8 @@ export function ClaudeDesktopProviderForm({
               storedVertexAi.projectId ||
               storedVertexAi.serviceAccount?.project_id ||
               "",
-            location: previous.location.trim() || storedVertexAi.location || "global",
+            location:
+              previous.location.trim() || storedVertexAi.location || "global",
           }
         : previous,
     );
@@ -599,6 +639,24 @@ export function ClaudeDesktopProviderForm({
         );
       });
     }
+  };
+
+  const vertexFamily: "claude" | "gemini" =
+    localVertexAi?.publisher === "google" ? "gemini" : "claude";
+  const handleVertexFamilyChange = (family: "claude" | "gemini") => {
+    if (!localVertexAi) return;
+    setLocalVertexAi((previous) =>
+      previous
+        ? {
+            ...previous,
+            publisher: family === "gemini" ? "google" : "anthropic",
+          }
+        : previous,
+    );
+    setApiFormat(family === "gemini" ? "gemini_native" : "anthropic");
+    setFetchedModels([]);
+    setProxyRoutes(vertexFamilyRows(family));
+    didSeedDefaultProxyRoutes.current = true;
   };
 
   useEffect(() => {
@@ -1020,7 +1078,7 @@ export function ClaudeDesktopProviderForm({
       claudeDesktopMode: effectiveMode,
       vertexAi: effectiveVertexAi,
       apiFormat: localVertexAi
-        ? "anthropic"
+        ? savedApiFormat
         : activeProviderType === "xai_oauth"
           ? "openai_responses"
           : effectiveMode === "proxy"
@@ -1143,35 +1201,78 @@ export function ClaudeDesktopProviderForm({
         {!isOfficial && (
           <>
             {localVertexAi ? (
-              <VertexAiFields
-                projectId={localVertexAi.projectId}
-                location={localVertexAi.location}
-                onChange={(field, value) =>
-                  setLocalVertexAi((previous) =>
-                    previous ? { ...previous, [field]: value } : previous,
-                  )
-                }
-                accessToken={apiKey}
-                onAccessTokenChange={setApiKey}
-                serviceAccount={localVertexAi.serviceAccount}
-                onServiceAccountChange={(serviceAccount) => {
-                  setLocalVertexAi((previous) =>
-                    previous
-                      ? {
-                          ...previous,
-                          serviceAccount,
-                          projectId: previous.projectId.trim()
-                            ? previous.projectId
-                            : (serviceAccount?.project_id ??
-                              previous.projectId),
-                        }
-                      : previous,
-                  );
-                  if (serviceAccount) setApiKey("");
-                }}
-                publisher="anthropic"
-                hintKey="vertexAi.claudeDesktopAuthHint"
-              />
+              <div className="space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <Label>
+                      {t("claudeDesktop.vertexModelFamily", {
+                        defaultValue: "上游模型类型",
+                      })}
+                    </Label>
+                    <p className="text-xs leading-relaxed text-fg-2">
+                      {t("claudeDesktop.vertexModelFamilyHint", {
+                        defaultValue:
+                          "选择 Claude 或 Gemini；决定 Vertex 的发布者和请求协议。",
+                      })}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={
+                        vertexFamily === "claude" ? "secondary" : "outline"
+                      }
+                      onClick={() => handleVertexFamilyChange("claude")}
+                    >
+                      {t("claudeDesktop.vertexFamilyClaude", {
+                        defaultValue: "Claude",
+                      })}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={
+                        vertexFamily === "gemini" ? "secondary" : "outline"
+                      }
+                      onClick={() => handleVertexFamilyChange("gemini")}
+                    >
+                      {t("claudeDesktop.vertexFamilyGemini", {
+                        defaultValue: "Gemini",
+                      })}
+                    </Button>
+                  </div>
+                </div>
+                <VertexAiFields
+                  projectId={localVertexAi.projectId}
+                  location={localVertexAi.location}
+                  onChange={(field, value) =>
+                    setLocalVertexAi((previous) =>
+                      previous ? { ...previous, [field]: value } : previous,
+                    )
+                  }
+                  accessToken={apiKey}
+                  onAccessTokenChange={setApiKey}
+                  serviceAccount={localVertexAi.serviceAccount}
+                  onServiceAccountChange={(serviceAccount) => {
+                    setLocalVertexAi((previous) =>
+                      previous
+                        ? {
+                            ...previous,
+                            serviceAccount,
+                            projectId: previous.projectId.trim()
+                              ? previous.projectId
+                              : (serviceAccount?.project_id ??
+                                previous.projectId),
+                          }
+                        : previous,
+                    );
+                    if (serviceAccount) setApiKey("");
+                  }}
+                  publisher={localVertexAi.publisher}
+                  hintKey="vertexAi.claudeDesktopAuthHint"
+                />
+              </div>
             ) : usesManagedOAuth ? (
               <div className="rounded-lg border border-border bg-subtle p-3">
                 {activeProviderType === "github_copilot" ? (
@@ -1305,7 +1406,9 @@ export function ClaudeDesktopProviderForm({
                       </Label>
                       <Select
                         value={apiFormat}
-                        disabled={usesAutomaticCopilotFormat}
+                        disabled={
+                          usesAutomaticCopilotFormat || Boolean(localVertexAi)
+                        }
                         onValueChange={(value) =>
                           setApiFormat(value as ClaudeApiFormat)
                         }
@@ -1481,9 +1584,7 @@ export function ClaudeDesktopProviderForm({
                             />
                             {fetchedModels.length > 0 && (
                               <>
-                                <datalist
-                                  id={`claude-desktop-models-${index}`}
-                                >
+                                <datalist id={`claude-desktop-models-${index}`}>
                                   {fetchedModels.map((model) => (
                                     <option
                                       key={model.id}

@@ -298,6 +298,10 @@
   },
   "claudeDesktop": {
     "modelConfigTitle": "模型設定",
+    "vertexModelFamily": "上游模型類型",
+    "vertexModelFamilyHint": "選擇 Claude 或 Gemini；決定 Vertex 的發布者與請求協定。",
+    "vertexFamilyClaude": "Claude",
+    "vertexFamilyGemini": "Gemini",
     "modelModeLabel": "接入方式",
     "modelModeDirect": "直連",
     "modelModeProxy": "模型映射",

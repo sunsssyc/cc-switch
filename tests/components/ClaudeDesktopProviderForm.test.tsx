@@ -874,6 +874,59 @@ describe("Claude Desktop Vertex credential reuse", () => {
   });
 });
 
+describe("Claude Desktop Vertex model family", () => {
+  it("switches the mapping and fetch publisher to Gemini", async () => {
+    const { onSubmit } = renderForm({
+      name: "Google Vertex AI",
+      category: "cloud_provider",
+      settingsConfig: {
+        env: { ANTHROPIC_BASE_URL: "https://aiplatform.googleapis.com" },
+      },
+      meta: {
+        claudeDesktopMode: "proxy",
+        apiFormat: "anthropic",
+        vertexAi: {
+          projectId: "my-project",
+          location: "global",
+          publisher: "anthropic",
+        },
+        claudeDesktopModelRoutes: {
+          "claude-sonnet-5": { model: "claude-sonnet-5", supports1m: true },
+          "claude-opus-5": { model: "claude-opus-5", supports1m: true },
+          "claude-haiku-4-5": { model: "claude-haiku-4-5" },
+        },
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Gemini" }));
+    expect(
+      screen.getAllByDisplayValue("gemini-4-argon").length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByDisplayValue("gemini-3.8-flash").length,
+    ).toBeGreaterThan(0);
+
+    modelFetchMocks.fetchVertexModels.mockResolvedValue([
+      { id: "gemini-4-argon", ownedBy: "google" },
+    ]);
+    fireEvent.click(screen.getAllByRole("button", { name: /获取模型/ })[0]);
+    await waitFor(() =>
+      expect(modelFetchMocks.fetchVertexModels).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectId: "my-project",
+          location: "global",
+          publisher: "google",
+        }),
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit.mock.calls[0][0].meta.apiFormat).toBe("gemini_native");
+    expect(onSubmit.mock.calls[0][0].meta.vertexAi.publisher).toBe("google");
+  });
+});
+
 describe("Claude Desktop Vertex service account import", () => {
   it("fills the project ID from the imported JSON key", async () => {
     const serviceAccount = {

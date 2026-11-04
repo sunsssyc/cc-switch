@@ -298,6 +298,10 @@
   },
   "claudeDesktop": {
     "modelConfigTitle": "モデル設定",
+    "vertexModelFamily": "上流モデル種別",
+    "vertexModelFamilyHint": "Claude または Gemini を選択します。Vertex のパブリッシャーとリクエストプロトコルが切り替わります。",
+    "vertexFamilyClaude": "Claude",
+    "vertexFamilyGemini": "Gemini",
     "modelModeLabel": "接続方式",
     "modelModeDirect": "直接接続",
     "modelModeProxy": "モデルマッピング",

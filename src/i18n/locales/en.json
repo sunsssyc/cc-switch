@@ -298,6 +298,10 @@
   },
   "claudeDesktop": {
     "modelConfigTitle": "Model Configuration",
+    "vertexModelFamily": "Vertex model family",
+    "vertexModelFamilyHint": "Choose Claude or Gemini; this sets the Vertex publisher and request protocol.",
+    "vertexFamilyClaude": "Claude",
+    "vertexFamilyGemini": "Gemini",
     "modelModeLabel": "Connection Mode",
     "modelModeDirect": "Direct",
     "modelModeProxy": "Model Mapping",
