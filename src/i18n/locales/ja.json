@@ -5199,6 +5199,7 @@
     "credentialsPath": "サービスアカウント JSON のパス（任意）",
     "credentialsPathPlaceholder": "絶対パス。空欄の場合は gcloud ADC を使用",
     "projectId": "Google Cloud プロジェクト ID",
+    "projectAutoFillHint": "サービスアカウント JSON キーをインポートすると、プロジェクト ID が自動入力されます。",
     "location": "Vertex AI リージョン",
     "accessToken": "Google アクセストークン（任意）",
     "accessTokenPlaceholder": "空欄の場合は gcloud ADC を使用",

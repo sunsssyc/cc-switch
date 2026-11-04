@@ -81,6 +81,11 @@ export function VertexAiFields({
           placeholder="my-gcp-project"
           onValueChange={(value) => onChange("projectId", value)}
         />
+        {onServiceAccountChange && (
+          <p className="text-xs text-fg-2">
+            {t("vertexAi.projectAutoFillHint")}
+          </p>
+        )}
       </div>
       <div className="space-y-1">
         <Label htmlFor="vertex-location">{t("vertexAi.location")}</Label>

@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ClaudeDesktopProviderForm } from "@/components/providers/forms/ClaudeDesktopProviderForm";
 import { claudeDesktopProviderPresets } from "@/config/claudeDesktopProviderPresets";
 import { createTestQueryClient } from "../utils/testQueryClient";
+import { providersApi } from "@/lib/api/providers";
 
 const authState = vi.hoisted(() => ({
   codexReauthRequired: false,
@@ -75,6 +76,7 @@ vi.mock("@/components/providers/forms/XaiOAuthSection", () => ({
 vi.mock("@/lib/api/providers", () => ({
   providersApi: {
     getClaudeDesktopDefaultRoutes: () => Promise.resolve([]),
+    importVertexServiceAccount: vi.fn(),
   },
 }));
 
@@ -796,6 +798,69 @@ describe("ClaudeDesktopProviderForm Vertex AI", () => {
     );
     expect(settings.env).not.toHaveProperty("ANTHROPIC_AUTH_TOKEN");
     expect(settings.env).not.toHaveProperty("ANTHROPIC_API_KEY");
+  });
+});
+
+describe("Claude Desktop Vertex service account import", () => {
+  it("fills the project ID from the imported JSON key", async () => {
+    const serviceAccount = {
+      type: "service_account" as const,
+      project_id: "key-project",
+      private_key_id: "test-id",
+      private_key: "fixture-private-key",
+      client_email: "test@key-project.iam.gserviceaccount.com",
+      token_uri: "https://oauth2.googleapis.com/token",
+    };
+    vi.mocked(providersApi.importVertexServiceAccount).mockResolvedValue(
+      serviceAccount,
+    );
+
+    const { onSubmit } = renderForm({
+      name: "Google Vertex AI",
+      category: "cloud_provider",
+      settingsConfig: {
+        env: { ANTHROPIC_BASE_URL: "https://aiplatform.googleapis.com" },
+      },
+      meta: {
+        claudeDesktopMode: "proxy",
+        apiFormat: "anthropic",
+        vertexAi: {
+          projectId: "",
+          location: "global",
+          publisher: "anthropic",
+        },
+        claudeDesktopModelRoutes: {
+          "claude-sonnet-5": { model: "claude-sonnet-5", supports1m: true },
+          "claude-opus-5": { model: "claude-opus-5", supports1m: true },
+          "claude-haiku-4-5": { model: "claude-haiku-4-5" },
+        },
+      },
+    });
+
+    fireEvent.change(screen.getByLabelText("vertexAi.serviceAccount"), {
+      target: {
+        files: [
+          new File([JSON.stringify(serviceAccount)], "key.json", {
+            type: "application/json",
+          }),
+        ],
+      },
+    });
+    await screen.findByText(serviceAccount.client_email);
+    expect(providersApi.importVertexServiceAccount).toHaveBeenCalledWith(
+      JSON.stringify(serviceAccount),
+    );
+    expect(screen.getByLabelText("vertexAi.projectId")).toHaveValue(
+      "key-project",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    const payload = onSubmit.mock.calls[0][0];
+    expect(payload.meta.vertexAi).toMatchObject({
+      projectId: "key-project",
+      serviceAccount,
+    });
   });
 });
 

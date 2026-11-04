@@ -729,10 +729,19 @@ export function ClaudeDesktopProviderForm({
       });
       return;
     }
+    const effectiveVertexAi = localVertexAi
+      ? {
+          ...localVertexAi,
+          projectId:
+            localVertexAi.projectId.trim() ||
+            localVertexAi.serviceAccount?.project_id ||
+            "",
+        }
+      : undefined;
     if (
-      localVertexAi &&
-      (!/^[A-Za-z0-9_-]+$/.test(localVertexAi.projectId.trim()) ||
-        !/^[A-Za-z0-9_-]+$/.test(localVertexAi.location.trim()))
+      effectiveVertexAi &&
+      (!/^[A-Za-z0-9_-]+$/.test(effectiveVertexAi.projectId) ||
+        !/^[A-Za-z0-9_-]+$/.test(effectiveVertexAi.location.trim()))
     ) {
       toast.error(t("vertexAi.invalidConfig"));
       return;
@@ -929,7 +938,7 @@ export function ClaudeDesktopProviderForm({
     const meta: ProviderMeta = {
       ...(initialData?.meta ?? {}),
       claudeDesktopMode: effectiveMode,
-      vertexAi: localVertexAi,
+      vertexAi: effectiveVertexAi,
       apiFormat: localVertexAi
         ? "anthropic"
         : activeProviderType === "xai_oauth"

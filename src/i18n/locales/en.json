@@ -5199,6 +5199,7 @@
     "credentialsPath": "Service account JSON path (optional)",
     "credentialsPathPlaceholder": "Absolute path; leave empty to use gcloud ADC",
     "projectId": "Google Cloud project ID",
+    "projectAutoFillHint": "The project ID is filled automatically after importing a service account JSON key.",
     "location": "Vertex AI location",
     "accessToken": "Google access token (optional)",
     "accessTokenPlaceholder": "Leave empty to use gcloud ADC",

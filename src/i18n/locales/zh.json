@@ -5199,6 +5199,7 @@
     "credentialsPath": "服务账号 JSON 路径（可选）",
     "credentialsPathPlaceholder": "绝对路径；留空使用 gcloud ADC",
     "projectId": "Google Cloud 项目 ID",
+    "projectAutoFillHint": "导入服务账号 JSON 密钥后会自动填入项目 ID。",
     "location": "Vertex AI 区域",
     "accessToken": "Google 访问令牌（可选）",
     "accessTokenPlaceholder": "留空时使用 gcloud ADC",
