@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { TFunction } from "i18next";
 import { toast } from "@/lib/toast";
 import { parseHeaderOverrideJson } from "@/lib/requestOverrides";
+import type { VertexServiceAccount } from "@/types";
 
 export interface FetchedModel {
   id: string;
@@ -58,6 +59,23 @@ export async function fetchModelsForConfig(
     customUserAgent,
     apiFormat: options?.apiFormat,
     requestHeaders: options?.requestHeaders,
+  });
+}
+
+/** 获取 Vertex AI 发布者模型列表（Claude / Gemini）。 */
+export async function fetchVertexModels(options: {
+  projectId: string;
+  location: string;
+  publisher?: string;
+  accessToken?: string;
+  serviceAccount?: VertexServiceAccount;
+}): Promise<FetchedModel[]> {
+  return invoke("fetch_vertex_models", {
+    projectId: options.projectId,
+    location: options.location,
+    publisher: options.publisher ?? "anthropic",
+    accessToken: options.accessToken || null,
+    serviceAccount: options.serviceAccount ?? null,
   });
 }
 

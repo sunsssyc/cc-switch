@@ -52,6 +52,7 @@ import {
 import {
   fetchCodexOauthModels,
   fetchModelsForConfig,
+  fetchVertexModels,
   fetchXaiOauthModels,
   showFetchModelsError,
   type FetchedModel,
@@ -666,7 +667,38 @@ export function ClaudeDesktopProviderForm({
       await handleFetchManagedModels();
       return;
     }
-    if (localVertexAi) return;
+    if (localVertexAi) {
+      const projectId =
+        localVertexAi.projectId.trim() ||
+        localVertexAi.serviceAccount?.project_id ||
+        "";
+      if (!projectId) {
+        toast.error(t("vertexAi.invalidConfig"));
+        return;
+      }
+      setIsFetchingModels(true);
+      try {
+        const models = await fetchVertexModels({
+          projectId,
+          location: localVertexAi.location.trim() || "global",
+          publisher: localVertexAi.publisher,
+          accessToken: apiKey.trim() || undefined,
+          serviceAccount: localVertexAi.serviceAccount,
+        });
+        setFetchedModels(models);
+        toast.success(
+          t("providerForm.fetchModelsSuccess", {
+            count: models.length,
+            defaultValue: `已获取 ${models.length} 个模型`,
+          }),
+        );
+      } catch (error) {
+        showFetchModelsError(error, t);
+      } finally {
+        setIsFetchingModels(false);
+      }
+      return;
+    }
     if (!baseUrl.trim() || !apiKey.trim()) {
       showFetchModelsError(null, t, {
         hasBaseUrl: Boolean(baseUrl.trim()),
@@ -1009,7 +1041,7 @@ export function ClaudeDesktopProviderForm({
         variant="outline"
         size="sm"
         onClick={handleFetchModels}
-        disabled={isFetchingModels || Boolean(localVertexAi)}
+        disabled={isFetchingModels}
         className="h-7 gap-1"
       >
         {isFetchingModels ? (
@@ -1300,7 +1332,7 @@ export function ClaudeDesktopProviderForm({
                           variant="outline"
                           size="sm"
                           onClick={handleFetchModels}
-                          disabled={isFetchingModels || Boolean(localVertexAi)}
+                          disabled={isFetchingModels}
                           className="h-7 gap-1"
                         >
                           {isFetchingModels ? (

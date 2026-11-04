@@ -16,6 +16,7 @@ const toastMocks = vi.hoisted(() => ({
 }));
 const modelFetchMocks = vi.hoisted(() => ({
   fetchCodexOauthModels: vi.fn(),
+  fetchVertexModels: vi.fn(),
 }));
 
 vi.mock("@/lib/api/model-fetch", async (importOriginal) => {
@@ -23,6 +24,7 @@ vi.mock("@/lib/api/model-fetch", async (importOriginal) => {
   return {
     ...actual,
     fetchCodexOauthModels: modelFetchMocks.fetchCodexOauthModels,
+    fetchVertexModels: modelFetchMocks.fetchVertexModels,
   };
 });
 
@@ -103,6 +105,7 @@ describe("ClaudeDesktopProviderForm", () => {
     authState.codexReauthRequired = false;
     toastMocks.error.mockReset();
     modelFetchMocks.fetchCodexOauthModels.mockReset();
+    modelFetchMocks.fetchVertexModels.mockReset();
   });
 
   it("托管 OAuth 供应商也能获取模型并在映射行里选择（#8426）", async () => {
@@ -852,6 +855,23 @@ describe("Claude Desktop Vertex service account import", () => {
     );
     expect(screen.getByLabelText("vertexAi.projectId")).toHaveValue(
       "key-project",
+    );
+
+    modelFetchMocks.fetchVertexModels.mockResolvedValue([
+      { id: "claude-sonnet-5", ownedBy: "anthropic" },
+    ]);
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /获取模型/ })[0],
+    );
+    await waitFor(() =>
+      expect(modelFetchMocks.fetchVertexModels).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectId: "key-project",
+          location: "global",
+          publisher: "anthropic",
+          serviceAccount,
+        }),
+      ),
     );
 
     fireEvent.click(screen.getByRole("button", { name: "保存" }));

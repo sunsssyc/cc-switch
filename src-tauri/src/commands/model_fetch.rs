@@ -204,9 +204,167 @@ pub async fn fetch_models_for_config(
     .await
 }
 
+/// 获取 Vertex AI 发布者模型列表（Claude / Gemini）。
+///
+/// Vertex 的模型列表不是 OpenAI 的 `/v1/models`，需要发布者路径和 Google
+/// 认证。凭据与转发路径共用：服务账号、显式访问令牌或 gcloud ADC。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn fetch_vertex_models(
+    project_id: String,
+    location: String,
+    publisher: String,
+    access_token: Option<String>,
+    service_account: Option<crate::provider::VertexServiceAccount>,
+) -> Result<Vec<FetchedModel>, String> {
+    let project = project_id.trim();
+    let location = location.trim();
+    let publisher = match publisher.trim() {
+        "google" => "google",
+        _ => "anthropic",
+    };
+    let valid_segment = |value: &str| {
+        !value.is_empty()
+            && value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+    };
+    if !valid_segment(project) || !valid_segment(location) {
+        return Err("Vertex AI requires a valid project ID and location".to_string());
+    }
+    let host = match location {
+        "global" => "aiplatform.googleapis.com".to_string(),
+        "us" | "eu" => format!("aiplatform.{location}.rep.googleapis.com"),
+        _ => format!("{location}-aiplatform.googleapis.com"),
+    };
+    let url = format!(
+        "https://{host}/v1/projects/{project}/locations/{location}/publishers/{publisher}/models?pageSize=1000"
+    );
+    let headers = crate::proxy::providers::vertex::auth_headers(
+        access_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+        service_account.as_ref(),
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    let mut header_map = reqwest::header::HeaderMap::new();
+    for (name, value) in headers {
+        header_map.insert(name, value);
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|error| format!("Vertex AI model list client failed: {error}"))?;
+
+    let mut models = BTreeMap::new();
+    let mut page_token: Option<String> = None;
+    for _ in 0..10 {
+        let mut request = client.get(&url).headers(header_map.clone());
+        if let Some(token) = page_token.as_deref() {
+            request = request.query(&[("pageToken", token)]);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|error| format!("Vertex AI model list request failed: {error}"))?;
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|error| format!("Vertex AI model list read failed: {error}"))?;
+        if !status.is_success() {
+            let detail = body.trim();
+            let detail = if detail.len() > 300 {
+                &detail[..300]
+            } else {
+                detail
+            };
+            return Err(format!(
+                "Vertex AI model list returned HTTP {status}{}{detail}",
+                if detail.is_empty() { "" } else { ": " }
+            ));
+        }
+        let value: serde_json::Value = serde_json::from_str(&body)
+            .map_err(|error| format!("Vertex AI model list returned invalid JSON: {error}"))?;
+        for (id, owned_by) in parse_vertex_publisher_models(&value, publisher) {
+            models.entry(id).or_insert(owned_by);
+        }
+        page_token = value
+            .get("nextPageToken")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .filter(|token| !token.is_empty());
+        if page_token.is_none() {
+            break;
+        }
+    }
+
+    Ok(models
+        .into_iter()
+        .map(|(id, owned_by)| FetchedModel { id, owned_by })
+        .collect())
+}
+
+fn parse_vertex_publisher_models(
+    value: &serde_json::Value,
+    publisher: &str,
+) -> Vec<(String, Option<String>)> {
+    let items = value
+        .get("publisherModels")
+        .or_else(|| value.get("models"))
+        .and_then(serde_json::Value::as_array);
+    let Some(items) = items else {
+        return Vec::new();
+    };
+    let mut models = BTreeMap::new();
+    for item in items {
+        let Some(name) = item.get("name").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let Some(id) = name.rsplit('/').next().filter(|id| !id.is_empty()) else {
+            continue;
+        };
+        if !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '@'))
+        {
+            continue;
+        }
+        models
+            .entry(id.to_string())
+            .or_insert_with(|| Some(publisher.to_string()));
+    }
+    models.into_iter().collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{parse_opencode_models, OpenCodeModelRef};
+    use super::{parse_opencode_models, parse_vertex_publisher_models, OpenCodeModelRef};
+    use serde_json::json;
+
+    #[test]
+    fn parses_vertex_publisher_model_ids() {
+        let value = json!({
+            "publisherModels": [
+                {"name": "publishers/anthropic/models/claude-sonnet-5"},
+                {"name": "publishers/anthropic/models/claude-opus-5@20260101"},
+                {"name": "publishers/anthropic/models/claude-sonnet-5"},
+                {"name": "publishers/anthropic/models/bad name"},
+                {"displayName": "missing name"}
+            ]
+        });
+        assert_eq!(
+            parse_vertex_publisher_models(&value, "anthropic"),
+            vec![
+                (
+                    "claude-opus-5@20260101".to_string(),
+                    Some("anthropic".to_string())
+                ),
+                ("claude-sonnet-5".to_string(), Some("anthropic".to_string())),
+            ]
+        );
+    }
 
     #[test]
     fn parses_sorts_and_deduplicates_models() {
