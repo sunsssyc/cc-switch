@@ -300,6 +300,7 @@
     "modelConfigTitle": "Model Configuration",
     "vertexModelFamily": "Vertex model family",
     "vertexModelFamilyHint": "Choose Claude or Gemini; this sets the Vertex publisher and request protocol.",
+    "vertexFamilyCurrent": "Current: {{family}}",
     "vertexFamilyClaude": "Claude",
     "vertexFamilyGemini": "Gemini",
     "modelModeLabel": "Connection Mode",

@@ -300,6 +300,7 @@
     "modelConfigTitle": "モデル設定",
     "vertexModelFamily": "上流モデル種別",
     "vertexModelFamilyHint": "Claude または Gemini を選択します。Vertex のパブリッシャーとリクエストプロトコルが切り替わります。",
+    "vertexFamilyCurrent": "現在：{{family}}",
     "vertexFamilyClaude": "Claude",
     "vertexFamilyGemini": "Gemini",
     "modelModeLabel": "接続方式",

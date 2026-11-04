@@ -1215,14 +1215,22 @@ export function ClaudeDesktopProviderForm({
                           "选择 Claude 或 Gemini；决定 Vertex 的发布者和请求协议。",
                       })}
                     </p>
+                    <p className="text-xs font-medium text-fg-1">
+                      {t("claudeDesktop.vertexFamilyCurrent", {
+                        family: vertexFamily === "gemini" ? "Gemini" : "Claude",
+                        defaultValue: `当前：${
+                          vertexFamily === "gemini" ? "Gemini" : "Claude"
+                        }`,
+                      })}
+                    </p>
                   </div>
-                  <div className="flex shrink-0 gap-1">
+                  <div className="inline-flex shrink-0 gap-1 rounded-lg border border-border p-0.5">
                     <Button
                       type="button"
                       size="sm"
-                      variant={
-                        vertexFamily === "claude" ? "secondary" : "outline"
-                      }
+                      aria-pressed={vertexFamily === "claude"}
+                      variant={vertexFamily === "claude" ? "default" : "ghost"}
+                      className="min-w-[76px]"
                       onClick={() => handleVertexFamilyChange("claude")}
                     >
                       {t("claudeDesktop.vertexFamilyClaude", {
@@ -1232,9 +1240,9 @@ export function ClaudeDesktopProviderForm({
                     <Button
                       type="button"
                       size="sm"
-                      variant={
-                        vertexFamily === "gemini" ? "secondary" : "outline"
-                      }
+                      aria-pressed={vertexFamily === "gemini"}
+                      variant={vertexFamily === "gemini" ? "default" : "ghost"}
+                      className="min-w-[76px]"
                       onClick={() => handleVertexFamilyChange("gemini")}
                     >
                       {t("claudeDesktop.vertexFamilyGemini", {

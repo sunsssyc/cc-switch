@@ -300,6 +300,7 @@
     "modelConfigTitle": "模型配置",
     "vertexModelFamily": "上游模型类型",
     "vertexModelFamilyHint": "选择 Claude 或 Gemini；决定 Vertex 的发布者和请求协议。",
+    "vertexFamilyCurrent": "当前：{{family}}",
     "vertexFamilyClaude": "Claude",
     "vertexFamilyGemini": "Gemini",
     "modelModeLabel": "接入方式",

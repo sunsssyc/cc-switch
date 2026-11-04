@@ -898,7 +898,14 @@ describe("Claude Desktop Vertex model family", () => {
       },
     });
 
+    expect(
+      screen.getByRole("button", { name: "Claude" }),
+    ).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: "Gemini" }));
+    expect(
+      screen.getByRole("button", { name: "Gemini" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/当前：Gemini/)).toBeInTheDocument();
     expect(
       screen.getAllByDisplayValue("gemini-4-argon").length,
     ).toBeGreaterThan(0);
