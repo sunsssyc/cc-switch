@@ -5204,6 +5204,7 @@
     "accessTokenPlaceholder": "留空时使用 gcloud ADC",
     "invalidConfig": "请填写有效的 Google Cloud 项目 ID 和区域（仅限字母、数字、连字符和下划线）。",
     "codexAuthHint": "需要开启本地路由。先在 Vertex AI Model Garden 启用 Claude 模型，再运行 gcloud auth application-default login；CC Switch 通过 gcloud 自动刷新访问令牌。也可以填写 Google OAuth 访问令牌，过期后需手动更新。Vertex AI 的 Claude 模型不支持 API Key。",
-    "claudeAuthHint": "先在 Vertex AI Model Garden 启用 Claude 模型，再运行 gcloud auth application-default login。直连模式使用 Claude Code 原生 Vertex AI 认证；本地路由使用 gcloud ADC。请选择模型支持的区域。"
+    "claudeAuthHint": "先在 Vertex AI Model Garden 启用 Claude 模型，再运行 gcloud auth application-default login。直连模式使用 Claude Code 原生 Vertex AI 认证；本地路由使用 gcloud ADC。请选择模型支持的区域。",
+    "claudeDesktopAuthHint": "Claude Desktop 通过本地网关连接。先在 Vertex AI Model Garden 启用 Claude 模型，再使用 gcloud ADC、服务账号 JSON 密钥或 Google OAuth 访问令牌。请选择模型支持的区域。"
   }
 }

@@ -8,7 +8,7 @@
  *
  * 翻译来源：src/config/claudeProviderPresets.ts（排除 OAuth 与不兼容预设）
  */
-import { ProviderCategory } from "../types";
+import { ProviderCategory, VertexAiConfig } from "../types";
 import type { PresetTheme } from "./claudeProviderPresets";
 import type { PresetFamilyFields } from "./presetFamilies";
 
@@ -57,6 +57,8 @@ export interface ClaudeDesktopProviderPreset extends PresetFamilyFields {
   mode: "direct" | "proxy";
   apiFormat?: ClaudeDesktopApiFormat;
   modelRoutes?: ClaudeDesktopRoutePreset[];
+  // Vertex AI 直连上游；本地路由负责 Google 认证和 Anthropic Messages 转发。
+  vertexAi?: VertexAiConfig;
   providerType?: "github_copilot" | "codex_oauth" | "xai_oauth";
   requiresOAuth?: boolean;
   // 是否在 UI 中隐藏该预设（预设仍存在，仅不在列表中显示）
@@ -2574,5 +2576,26 @@ export const claudeDesktopProviderPresets: ClaudeDesktopProviderPreset[] = [
       true,
     ),
     icon: "aicoming",
+  },
+  {
+    name: "Google Vertex AI",
+    websiteUrl: "https://cloud.google.com/vertex-ai",
+    category: "cloud_provider",
+    baseUrl: "https://aiplatform.googleapis.com",
+    mode: "proxy",
+    apiFormat: "anthropic",
+    modelRoutes: mappedRoutes(
+      "claude-sonnet-5",
+      "claude-opus-5",
+      "claude-haiku-4-5",
+      true,
+    ),
+    vertexAi: {
+      projectId: "",
+      location: "global",
+      publisher: "anthropic",
+    },
+    icon: "googlecloud",
+    iconColor: "#4285F4",
   },
 ];

@@ -5204,6 +5204,7 @@
     "accessTokenPlaceholder": "空欄の場合は gcloud ADC を使用",
     "invalidConfig": "有効な Google Cloud プロジェクト ID とリージョンを入力してください（英数字、ハイフン、アンダースコア）。",
     "codexAuthHint": "ローカルルーティングが必要です。Vertex AI Model Garden で Claude モデルを有効にし、gcloud auth application-default login を実行してください。CC Switch は gcloud でトークンを更新します。Google OAuth アクセストークンを入力することもできますが、有効期限後は手動更新が必要です。Vertex AI の Claude モデルは API キーをサポートしません。",
-    "claudeAuthHint": "Vertex AI Model Garden で Claude モデルを有効にし、gcloud auth application-default login を実行してください。直接接続では Claude Code のネイティブ認証を使用し、ローカルルーティングでは gcloud ADC を使用します。モデルが利用できるリージョンを選択してください。"
+    "claudeAuthHint": "Vertex AI Model Garden で Claude モデルを有効にし、gcloud auth application-default login を実行してください。直接接続では Claude Code のネイティブ認証を使用し、ローカルルーティングでは gcloud ADC を使用します。モデルが利用できるリージョンを選択してください。",
+    "claudeDesktopAuthHint": "Claude Desktop はローカルゲートウェイ経由で接続します。Vertex AI Model Garden で Claude モデルを有効にし、gcloud ADC、サービスアカウント JSON キー、または Google OAuth アクセストークンを使用してください。モデルが利用できるリージョンを選択してください。"
   }
 }

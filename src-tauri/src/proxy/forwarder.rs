@@ -1382,9 +1382,12 @@ impl RequestForwarder {
         codex_upstream_format_out: &mut Option<CodexUpstreamFormat>,
     ) -> Result<(ProxyResponse, Option<String>, Option<String>), ProxyError> {
         *codex_upstream_format_out = None;
-        let vertex_config = matches!(app_type, AppType::Claude | AppType::Codex)
-            .then(|| super::providers::vertex::config(provider))
-            .flatten();
+        let vertex_config = matches!(
+            app_type,
+            AppType::Claude | AppType::Codex | AppType::ClaudeDesktop
+        )
+        .then(|| super::providers::vertex::config(provider))
+        .flatten();
         // 使用适配器提取 base_url
         let mut base_url = if vertex_config.is_some() {
             "https://aiplatform.googleapis.com".to_string()
@@ -7151,6 +7154,88 @@ mod tests {
             axum::serve(listener, app).await.expect("serve upstream");
         });
         format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn vertex_ai_forwards_claude_desktop_messages() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let seen = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let app = {
+            let seen = seen.clone();
+            axum::Router::new().fallback(move |uri: http::Uri, headers: HeaderMap, body: Bytes| {
+                let seen = seen.clone();
+                async move {
+                    seen.lock().await.push((
+                        uri.path().to_string(),
+                        headers,
+                        serde_json::from_slice::<Value>(&body).unwrap(),
+                    ));
+                    (
+                        StatusCode::OK,
+                        [(http::header::CONTENT_TYPE, "application/json")],
+                        json!({"id": "msg_vertex", "type": "message", "role": "assistant",
+                            "model": "claude-sonnet-5", "content": [{"type": "text", "text": "ok"}],
+                            "stop_reason": "end_turn", "usage": {"input_tokens": 2, "output_tokens": 1}})
+                        .to_string(),
+                    )
+                }
+            })
+        };
+        let base = serve_upstream(app).await;
+        let mut provider = test_provider_with_type(None);
+        provider.category = Some("cloud_provider".into());
+        provider.settings_config = json!({"env": {
+            "ANTHROPIC_VERTEX_BASE_URL": base,
+            "ANTHROPIC_AUTH_TOKEN": "google-token",
+            "ANTHROPIC_MODEL": "claude-sonnet-5"
+        }});
+        provider.meta = Some(crate::provider::ProviderMeta {
+            vertex_ai: Some(crate::provider::VertexAiConfig {
+                project_id: "project".into(),
+                location: "global".into(),
+                publisher: Some("anthropic".into()),
+                service_account: None,
+            }),
+            claude_desktop_mode: Some(crate::provider::ClaudeDesktopMode::Proxy),
+            claude_desktop_model_routes: HashMap::from([(
+                "claude-sonnet-5".to_string(),
+                crate::provider::ClaudeDesktopModelRoute {
+                    model: "claude-sonnet-5".to_string(),
+                    label_override: None,
+                    supports_1m: Some(true),
+                },
+            )]),
+            ..Default::default()
+        });
+        let body = json!({
+            "model": "claude-sonnet-5",
+            "max_tokens": 1024,
+            "messages": [{"role": "user", "content": "hi"}],
+        });
+
+        let result = test_forwarder(Duration::from_secs(5), Duration::from_secs(5))
+            .forward_with_retry(
+                &AppType::ClaudeDesktop,
+                http::Method::POST,
+                "/v1/messages",
+                body,
+                HeaderMap::new(),
+                Extensions::new(),
+                vec![provider],
+            )
+            .await
+            .map_err(|error| error.error)
+            .unwrap();
+        assert_eq!(result.outbound_model.as_deref(), Some("claude-sonnet-5"));
+
+        let (uri, headers, body) = seen.lock().await.pop().unwrap();
+        assert_eq!(
+            uri,
+            "/v1/projects/project/locations/global/publishers/anthropic/models/claude-sonnet-5:rawPredict"
+        );
+        assert_eq!(headers[http::header::AUTHORIZATION], "Bearer google-token");
+        assert_eq!(body["anthropic_version"], "vertex-2023-10-16");
+        assert!(body.get("model").is_none());
     }
 
     #[tokio::test]

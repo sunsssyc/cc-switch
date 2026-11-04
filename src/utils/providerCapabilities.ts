@@ -176,7 +176,11 @@ export function providerNeedsRouting(
 
   // Desktop 普通供应商由表单模式决定；托管 OAuth 的 token 只能由代理注入。
   if (appId === "claude-desktop") {
-    return isManagedOAuth || provider.meta?.claudeDesktopMode === "proxy";
+    return (
+      isManagedOAuth ||
+      provider.meta?.claudeDesktopMode === "proxy" ||
+      Boolean(provider.meta?.vertexAi)
+    );
   }
 
   if (appId !== "claude" && appId !== "codex" && appId !== "grokbuild") {

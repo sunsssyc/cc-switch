@@ -20,6 +20,7 @@ export function VertexAiFields({
   onServiceAccountChange,
   credentialsPath,
   onCredentialsPathChange,
+  hintKey,
 }: {
   projectId: string;
   location: string;
@@ -32,6 +33,7 @@ export function VertexAiFields({
   onServiceAccountChange?: (credentials?: VertexServiceAccount) => void;
   credentialsPath?: string;
   onCredentialsPathChange?: (value: string) => void;
+  hintKey?: string;
 }) {
   const { t } = useTranslation();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -164,17 +166,18 @@ export function VertexAiFields({
       )}
       <p className="text-xs leading-relaxed text-fg-2">
         {t(
-          serviceAccount
-            ? "vertexAi.serviceAccountHint"
-            : onCredentialsPathChange
-              ? "vertexAi.geminiCliAuthHint"
-              : publisher === "auto"
-                ? "vertexAi.authHint"
-                : isGemini
-                  ? "vertexAi.geminiAuthHint"
-                  : onAccessTokenChange
-                    ? "vertexAi.codexAuthHint"
-                    : "vertexAi.claudeAuthHint",
+          hintKey ??
+            (serviceAccount
+              ? "vertexAi.serviceAccountHint"
+              : onCredentialsPathChange
+                ? "vertexAi.geminiCliAuthHint"
+                : publisher === "auto"
+                  ? "vertexAi.authHint"
+                  : isGemini
+                    ? "vertexAi.geminiAuthHint"
+                    : onAccessTokenChange
+                      ? "vertexAi.codexAuthHint"
+                      : "vertexAi.claudeAuthHint"),
         )}
       </p>
     </div>

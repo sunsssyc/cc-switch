@@ -567,6 +567,17 @@ fn has_proxy_base_url_and_key(provider: &Provider) -> bool {
         .map(str::trim)
         .is_some_and(|value| !value.is_empty());
 
+    // Vertex AI authenticates with Google ADC / a service account, so the
+    // proxy does not need a user-entered API key.
+    if provider
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.vertex_ai.as_ref())
+        .is_some()
+    {
+        return has_base_url;
+    }
+
     if is_managed_oauth_proxy_provider(provider) {
         return has_base_url;
     }
@@ -1699,7 +1710,7 @@ mod tests {
     use super::*;
     use crate::config::write_json_file;
     use crate::database::Database;
-    use crate::provider::{ClaudeDesktopModelRoute, ProviderMeta};
+    use crate::provider::{ClaudeDesktopModelRoute, ProviderMeta, VertexAiConfig};
     use serde_json::json;
     use std::fs;
     use tempfile::TempDir;
@@ -2291,6 +2302,37 @@ mod tests {
                 json!([{ "name": "claude-sonnet-4-6", "labelOverride": "GPT-5.4" }])
             );
         }
+    }
+
+    #[test]
+    fn claude_desktop_proxy_accepts_vertex_without_a_static_key() {
+        let mut provider = proxy_provider("vertex");
+        provider.settings_config["env"]
+            .as_object_mut()
+            .expect("env")
+            .remove("ANTHROPIC_AUTH_TOKEN");
+        provider.meta.as_mut().expect("meta").vertex_ai = Some(VertexAiConfig {
+            project_id: "my-project".to_string(),
+            location: "global".to_string(),
+            publisher: Some("anthropic".to_string()),
+            service_account: None,
+        });
+
+        validate_proxy_provider(&provider).expect("Vertex proxy needs no API key");
+
+        let temp = TempDir::new().expect("tempdir");
+        let paths = test_paths(temp.path());
+        let db = test_db();
+        apply_provider_to_paths(&db, &provider, &paths).expect("apply vertex provider");
+        let profile: Value = read_json_file(&paths.profile_path).expect("read profile");
+        assert_eq!(
+            profile["inferenceGatewayBaseUrl"],
+            json!("http://127.0.0.1:15721/claude-desktop")
+        );
+        assert_eq!(
+            profile["inferenceModels"],
+            json!([{ "name": "claude-sonnet-4-6", "labelOverride": "Kimi K2", "supports1m": true, "prefer1m": true }])
+        );
     }
 
     #[test]

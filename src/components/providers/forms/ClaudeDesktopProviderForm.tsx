@@ -29,6 +29,7 @@ import { CodexOAuthSection } from "./CodexOAuthSection";
 import { CopilotAuthSection } from "./CopilotAuthSection";
 import { XaiOAuthSection } from "./XaiOAuthSection";
 import { ApiKeySection } from "./shared/ApiKeySection";
+import { VertexAiFields } from "./VertexAiFields";
 import { EndpointField } from "./shared/EndpointField";
 import { ModelDropdown } from "./shared/ModelDropdown";
 import { ProviderPresetSelector } from "./ProviderPresetSelector";
@@ -39,6 +40,7 @@ import type {
   ClaudeDesktopModelRoute,
   ProviderCategory,
   ProviderMeta,
+  VertexAiConfig,
 } from "@/types";
 import type { OpenClawSuggestedDefaults } from "@/config/openclawProviderPresets";
 import {
@@ -265,6 +267,9 @@ export function ClaudeDesktopProviderForm({
     ? "proxy"
     : (initialData?.meta?.claudeDesktopMode ?? "direct");
   const [mode, setMode] = useState<"direct" | "proxy">(initialMode);
+  const [localVertexAi, setLocalVertexAi] = useState<
+    VertexAiConfig | undefined
+  >(initialData?.meta?.vertexAi);
   const [apiFormat, setApiFormat] = useState<ClaudeApiFormat>(
     initialData?.meta?.apiFormat ?? "anthropic",
   );
@@ -417,7 +422,8 @@ export function ClaudeDesktopProviderForm({
   const usesManagedOAuth =
     activePreset?.requiresOAuth === true ||
     isOAuthProviderType(activeProviderType);
-  const effectiveMode: "direct" | "proxy" = usesManagedOAuth ? "proxy" : mode;
+  const effectiveMode: "direct" | "proxy" =
+    usesManagedOAuth || localVertexAi ? "proxy" : mode;
   const needsModelMapping = effectiveMode === "proxy";
   const routes = needsModelMapping ? proxyRoutes : directRoutes;
   const setRoutes = needsModelMapping ? setProxyRoutes : setDirectRoutes;
@@ -450,6 +456,7 @@ export function ClaudeDesktopProviderForm({
     setApiKeyField(preset.apiKeyField ?? "ANTHROPIC_AUTH_TOKEN");
     setApiFormat(preset.apiFormat ?? "anthropic");
     setReasoningEffort("auto");
+    setLocalVertexAi(preset.vertexAi);
 
     const presetMode =
       preset.requiresOAuth === true || isOAuthProviderType(preset.providerType)
@@ -499,6 +506,7 @@ export function ClaudeDesktopProviderForm({
       setApiKeyField("ANTHROPIC_AUTH_TOKEN");
       setApiFormat("anthropic");
       setReasoningEffort("auto");
+      setLocalVertexAi(undefined);
       didSeedDefaultProxyRoutes.current = false;
       setMode("direct");
       setDirectRoutes([]);
@@ -527,7 +535,7 @@ export function ClaudeDesktopProviderForm({
   };
 
   const handleModelMappingChange = (checked: boolean) => {
-    if (usesManagedOAuth) return;
+    if (usesManagedOAuth || localVertexAi) return;
     setMode(checked ? "proxy" : "direct");
     if (checked) {
       // 切到 proxy：只恢复/初始化映射模式自己的固定四档，不复用直连模型列表。
@@ -658,6 +666,7 @@ export function ClaudeDesktopProviderForm({
       await handleFetchManagedModels();
       return;
     }
+    if (localVertexAi) return;
     if (!baseUrl.trim() || !apiKey.trim()) {
       showFetchModelsError(null, t, {
         hasBaseUrl: Boolean(baseUrl.trim()),
@@ -720,7 +729,15 @@ export function ClaudeDesktopProviderForm({
       });
       return;
     }
-    if (!baseUrl.trim() && !usesManagedOAuth) {
+    if (
+      localVertexAi &&
+      (!/^[A-Za-z0-9_-]+$/.test(localVertexAi.projectId.trim()) ||
+        !/^[A-Za-z0-9_-]+$/.test(localVertexAi.location.trim()))
+    ) {
+      toast.error(t("vertexAi.invalidConfig"));
+      return;
+    }
+    if (!baseUrl.trim() && !usesManagedOAuth && !localVertexAi) {
       toast.error(
         t("providerForm.fetchModelsNeedEndpoint", {
           defaultValue: "请先填写接口地址",
@@ -805,7 +822,7 @@ export function ClaudeDesktopProviderForm({
       );
       return;
     }
-    if (!usesManagedOAuth && !apiKey.trim()) {
+    if (!usesManagedOAuth && !localVertexAi && !apiKey.trim()) {
       toast.error(
         t("providerForm.fetchModelsNeedApiKey", {
           defaultValue: "请先填写 API Key",
@@ -868,16 +885,26 @@ export function ClaudeDesktopProviderForm({
     const env = clonePlainRecord(settingsConfig.env);
     delete env.ANTHROPIC_AUTH_TOKEN;
     delete env.ANTHROPIC_API_KEY;
-    settingsConfig.env = usesManagedOAuth
+    const normalizedBaseUrl = (
+      baseUrl.trim() ||
+      (localVertexAi ? "https://aiplatform.googleapis.com" : "")
+    ).replace(/\/+$/, "");
+    settingsConfig.env = localVertexAi
       ? {
           ...env,
-          ANTHROPIC_BASE_URL: baseUrl.trim().replace(/\/+$/, ""),
+          ANTHROPIC_BASE_URL: normalizedBaseUrl,
+          ...(apiKey.trim() ? { ANTHROPIC_AUTH_TOKEN: apiKey.trim() } : {}),
         }
-      : {
-          ...env,
-          ANTHROPIC_BASE_URL: baseUrl.trim().replace(/\/+$/, ""),
-          [apiKeyField]: apiKey.trim(),
-        };
+      : usesManagedOAuth
+        ? {
+            ...env,
+            ANTHROPIC_BASE_URL: normalizedBaseUrl,
+          }
+        : {
+            ...env,
+            ANTHROPIC_BASE_URL: normalizedBaseUrl,
+            [apiKeyField]: apiKey.trim(),
+          };
 
     const routeMap = routeEntries.reduce<
       Record<string, ClaudeDesktopModelRoute>
@@ -902,8 +929,10 @@ export function ClaudeDesktopProviderForm({
     const meta: ProviderMeta = {
       ...(initialData?.meta ?? {}),
       claudeDesktopMode: effectiveMode,
-      apiFormat:
-        activeProviderType === "xai_oauth"
+      vertexAi: localVertexAi,
+      apiFormat: localVertexAi
+        ? "anthropic"
+        : activeProviderType === "xai_oauth"
           ? "openai_responses"
           : effectiveMode === "proxy"
             ? savedApiFormat
@@ -971,7 +1000,7 @@ export function ClaudeDesktopProviderForm({
         variant="outline"
         size="sm"
         onClick={handleFetchModels}
-        disabled={isFetchingModels}
+        disabled={isFetchingModels || Boolean(localVertexAi)}
         className="h-7 gap-1"
       >
         {isFetchingModels ? (
@@ -1024,7 +1053,37 @@ export function ClaudeDesktopProviderForm({
 
         {!isOfficial && (
           <>
-            {usesManagedOAuth ? (
+            {localVertexAi ? (
+              <VertexAiFields
+                projectId={localVertexAi.projectId}
+                location={localVertexAi.location}
+                onChange={(field, value) =>
+                  setLocalVertexAi((previous) =>
+                    previous ? { ...previous, [field]: value } : previous,
+                  )
+                }
+                accessToken={apiKey}
+                onAccessTokenChange={setApiKey}
+                serviceAccount={localVertexAi.serviceAccount}
+                onServiceAccountChange={(serviceAccount) => {
+                  setLocalVertexAi((previous) =>
+                    previous
+                      ? {
+                          ...previous,
+                          serviceAccount,
+                          projectId: previous.projectId.trim()
+                            ? previous.projectId
+                            : (serviceAccount?.project_id ??
+                              previous.projectId),
+                        }
+                      : previous,
+                  );
+                  if (serviceAccount) setApiKey("");
+                }}
+                publisher="anthropic"
+                hintKey="vertexAi.claudeDesktopAuthHint"
+              />
+            ) : usesManagedOAuth ? (
               <div className="rounded-lg border border-border bg-subtle p-3">
                 {activeProviderType === "github_copilot" ? (
                   <CopilotAuthSection
@@ -1070,23 +1129,25 @@ export function ClaudeDesktopProviderForm({
               />
             )}
 
-            <EndpointField
-              id="baseUrl"
-              label={t("providerForm.apiEndpoint")}
-              value={baseUrl}
-              onChange={(v) => setBaseUrl(v)}
-              placeholder={t("providerForm.apiEndpointPlaceholder")}
-              hint={
-                needsModelMapping && apiFormat === "openai_responses"
-                  ? t("providerForm.apiHintResponses")
-                  : needsModelMapping && apiFormat === "openai_chat"
-                    ? t("providerForm.apiHintOAI")
-                    : needsModelMapping && apiFormat === "gemini_native"
-                      ? t("providerForm.apiHintGeminiNative")
-                      : t("providerForm.apiHint")
-              }
-              showManageButton={false}
-            />
+            {!localVertexAi && (
+              <EndpointField
+                id="baseUrl"
+                label={t("providerForm.apiEndpoint")}
+                value={baseUrl}
+                onChange={(v) => setBaseUrl(v)}
+                placeholder={t("providerForm.apiEndpointPlaceholder")}
+                hint={
+                  needsModelMapping && apiFormat === "openai_responses"
+                    ? t("providerForm.apiHintResponses")
+                    : needsModelMapping && apiFormat === "openai_chat"
+                      ? t("providerForm.apiHintOAI")
+                      : needsModelMapping && apiFormat === "gemini_native"
+                        ? t("providerForm.apiHintGeminiNative")
+                        : t("providerForm.apiHint")
+                }
+                showManageButton={false}
+              />
+            )}
 
             <div className="space-y-4 border-l border-border pl-3">
               <div className="flex items-stretch justify-between gap-4">
@@ -1117,7 +1178,7 @@ export function ClaudeDesktopProviderForm({
                     onValueChange={(value) =>
                       handleModelMappingChange(value === "proxy")
                     }
-                    disabled={usesManagedOAuth}
+                    disabled={usesManagedOAuth || Boolean(localVertexAi)}
                   >
                     <SelectTrigger
                       id="claude-desktop-model-mode"
@@ -1230,7 +1291,7 @@ export function ClaudeDesktopProviderForm({
                           variant="outline"
                           size="sm"
                           onClick={handleFetchModels}
-                          disabled={isFetchingModels}
+                          disabled={isFetchingModels || Boolean(localVertexAi)}
                           className="h-7 gap-1"
                         >
                           {isFetchingModels ? (

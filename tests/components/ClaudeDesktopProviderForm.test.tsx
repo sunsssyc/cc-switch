@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ClaudeDesktopProviderForm } from "@/components/providers/forms/ClaudeDesktopProviderForm";
+import { claudeDesktopProviderPresets } from "@/config/claudeDesktopProviderPresets";
 import { createTestQueryClient } from "../utils/testQueryClient";
 
 const authState = vi.hoisted(() => ({
@@ -740,5 +741,76 @@ describe("ClaudeDesktopProviderForm", () => {
       ),
     );
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
+
+describe("ClaudeDesktopProviderForm Vertex AI", () => {
+  it("saves a proxied Vertex provider with project and location", async () => {
+    const { onSubmit } = renderForm({
+      name: "Google Vertex AI",
+      category: "cloud_provider",
+      settingsConfig: {
+        env: { ANTHROPIC_BASE_URL: "https://aiplatform.googleapis.com" },
+      },
+      meta: {
+        claudeDesktopMode: "proxy",
+        apiFormat: "anthropic",
+        vertexAi: {
+          projectId: "my-project",
+          location: "global",
+          publisher: "anthropic",
+        },
+        claudeDesktopModelRoutes: {
+          "claude-sonnet-5": { model: "claude-sonnet-5", supports1m: true },
+          "claude-opus-5": { model: "claude-opus-5", supports1m: true },
+          "claude-haiku-4-5": { model: "claude-haiku-4-5" },
+        },
+      },
+    });
+
+    expect(screen.getByLabelText("vertexAi.projectId")).toHaveValue(
+      "my-project",
+    );
+    expect(screen.getByLabelText("vertexAi.location")).toHaveValue("global");
+
+    fireEvent.change(screen.getByLabelText("vertexAi.projectId"), {
+      target: { value: "new-project" },
+    });
+    fireEvent.change(screen.getByLabelText("vertexAi.location"), {
+      target: { value: "us-east5" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    const payload = onSubmit.mock.calls[0][0];
+    expect(payload.meta.claudeDesktopMode).toBe("proxy");
+    expect(payload.meta.apiFormat).toBe("anthropic");
+    expect(payload.meta.vertexAi).toEqual({
+      projectId: "new-project",
+      location: "us-east5",
+      publisher: "anthropic",
+    });
+    const settings = JSON.parse(payload.settingsConfig);
+    expect(settings.env.ANTHROPIC_BASE_URL).toBe(
+      "https://aiplatform.googleapis.com",
+    );
+    expect(settings.env).not.toHaveProperty("ANTHROPIC_AUTH_TOKEN");
+    expect(settings.env).not.toHaveProperty("ANTHROPIC_API_KEY");
+  });
+});
+
+describe("Claude Desktop Vertex preset", () => {
+  it("is available as a proxied cloud provider", () => {
+    const preset = claudeDesktopProviderPresets.find(
+      (item) => item.name === "Google Vertex AI",
+    );
+    expect(preset).toBeDefined();
+    expect(preset?.category).toBe("cloud_provider");
+    expect(preset?.mode).toBe("proxy");
+    expect(preset?.vertexAi).toEqual({
+      projectId: "",
+      location: "global",
+      publisher: "anthropic",
+    });
   });
 });
