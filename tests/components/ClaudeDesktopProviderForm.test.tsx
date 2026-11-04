@@ -7,6 +7,7 @@ import { ClaudeDesktopProviderForm } from "@/components/providers/forms/ClaudeDe
 import { claudeDesktopProviderPresets } from "@/config/claudeDesktopProviderPresets";
 import { createTestQueryClient } from "../utils/testQueryClient";
 import { providersApi } from "@/lib/api/providers";
+import type { Provider } from "@/types";
 
 const authState = vi.hoisted(() => ({
   codexReauthRequired: false,
@@ -79,6 +80,7 @@ vi.mock("@/lib/api/providers", () => ({
   providersApi: {
     getClaudeDesktopDefaultRoutes: () => Promise.resolve([]),
     importVertexServiceAccount: vi.fn(),
+    getAll: vi.fn(),
   },
 }));
 
@@ -106,6 +108,7 @@ describe("ClaudeDesktopProviderForm", () => {
     toastMocks.error.mockReset();
     modelFetchMocks.fetchCodexOauthModels.mockReset();
     modelFetchMocks.fetchVertexModels.mockReset();
+    vi.mocked(providersApi.getAll).mockResolvedValue({});
   });
 
   it("托管 OAuth 供应商也能获取模型并在映射行里选择（#8426）", async () => {
@@ -801,6 +804,73 @@ describe("ClaudeDesktopProviderForm Vertex AI", () => {
     );
     expect(settings.env).not.toHaveProperty("ANTHROPIC_AUTH_TOKEN");
     expect(settings.env).not.toHaveProperty("ANTHROPIC_API_KEY");
+  });
+});
+
+beforeEach(() => {
+  vi.mocked(providersApi.getAll).mockResolvedValue({});
+  vi.mocked(providersApi.importVertexServiceAccount).mockReset();
+  modelFetchMocks.fetchVertexModels.mockReset();
+});
+
+describe("Claude Desktop Vertex credential reuse", () => {
+  it("reuses a service account already stored in another app", async () => {
+    const serviceAccount = {
+      type: "service_account" as const,
+      project_id: "stored-project",
+      private_key_id: "stored-id",
+      private_key: "fixture-private-key",
+      client_email: "stored@stored-project.iam.gserviceaccount.com",
+      token_uri: "https://oauth2.googleapis.com/token",
+    };
+    vi.mocked(providersApi.getAll).mockImplementation(
+      async (app): Promise<Record<string, Provider>> => {
+        if (app !== "codex") return {};
+        return {
+          "codex-vertex": {
+            id: "codex-vertex",
+            name: "Google Vertex AI",
+            settingsConfig: {},
+            meta: {
+              vertexAi: {
+                projectId: "stored-project",
+                location: "global",
+                publisher: "anthropic",
+                serviceAccount,
+              },
+            },
+          },
+        };
+      },
+    );
+
+    renderForm({
+      name: "Google Vertex AI",
+      category: "cloud_provider",
+      settingsConfig: {
+        env: { ANTHROPIC_BASE_URL: "https://aiplatform.googleapis.com" },
+      },
+      meta: {
+        claudeDesktopMode: "proxy",
+        apiFormat: "anthropic",
+        vertexAi: {
+          projectId: "",
+          location: "global",
+          publisher: "anthropic",
+        },
+        claudeDesktopModelRoutes: {
+          "claude-sonnet-5": { model: "claude-sonnet-5", supports1m: true },
+          "claude-opus-5": { model: "claude-opus-5", supports1m: true },
+          "claude-haiku-4-5": { model: "claude-haiku-4-5" },
+        },
+      },
+    });
+
+    await screen.findByText(serviceAccount.client_email);
+    expect(screen.getByLabelText("vertexAi.projectId")).toHaveValue(
+      "stored-project",
+    );
+    expect(providersApi.getAll).toHaveBeenCalledWith("codex");
   });
 });
 

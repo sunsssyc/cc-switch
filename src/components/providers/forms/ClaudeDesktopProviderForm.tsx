@@ -345,6 +345,48 @@ export function ClaudeDesktopProviderForm({
     [defaultRoutes, initialData?.settingsConfig],
   );
 
+  // Reuse a Vertex service account that is already stored in another app, so
+  // the user does not have to import the same JSON again for Claude Desktop.
+  const { data: storedVertexAi } = useQuery({
+    queryKey: ["storedVertexServiceAccount"],
+    queryFn: async () => {
+      for (const app of ["codex", "claude", "gemini", "claude-desktop"] as const) {
+        try {
+          const providers = await providersApi.getAll(app);
+          for (const provider of Object.values(providers)) {
+            const vertex = provider.meta?.vertexAi;
+            if (vertex?.serviceAccount) return vertex;
+          }
+        } catch {
+          // A missing/unsupported app must not block the others.
+        }
+      }
+      return null;
+    },
+    enabled: Boolean(localVertexAi) && !localVertexAi?.serviceAccount,
+    staleTime: Infinity,
+  });
+
+  useEffect(() => {
+    if (!storedVertexAi?.serviceAccount || !localVertexAi || localVertexAi.serviceAccount) {
+      return;
+    }
+    setLocalVertexAi((previous) =>
+      previous && !previous.serviceAccount
+        ? {
+            ...previous,
+            serviceAccount: storedVertexAi.serviceAccount,
+            projectId:
+              previous.projectId.trim() ||
+              storedVertexAi.projectId ||
+              storedVertexAi.serviceAccount?.project_id ||
+              "",
+            location: previous.location.trim() || storedVertexAi.location || "global",
+          }
+        : previous,
+    );
+  }, [localVertexAi, storedVertexAi]);
+
   const defaultValues: ProviderFormData = useMemo(
     () => ({
       name: initialData?.name ?? "",
@@ -693,7 +735,13 @@ export function ClaudeDesktopProviderForm({
           }),
         );
       } catch (error) {
-        showFetchModelsError(error, t);
+        const detail = String(error).trim();
+        console.error("[Vertex] model list failed", detail);
+        toast.error(
+          detail
+            ? `${t("providerForm.fetchModelsFailed")}: ${detail.slice(0, 300)}`
+            : t("providerForm.fetchModelsFailed"),
+        );
       } finally {
         setIsFetchingModels(false);
       }
